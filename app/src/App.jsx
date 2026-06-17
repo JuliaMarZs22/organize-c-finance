@@ -7,13 +7,14 @@ import {
   Wallet, TrendingUp, ArrowUpRight, ArrowDownRight, ShieldCheck, Sparkles,
   LayoutGrid, Plus, Briefcase, ListOrdered, Lock, Mail, LogOut, Users,
   Search, DollarSign, UserPlus, TrendingDown, Banknote, PiggyBank, Target,
-  FileSpreadsheet, Loader2,
+  FileSpreadsheet, Loader2, Trash2, Settings,
 } from "lucide-react";
 import {
   supabase, entrar, sair, usuarioAtual, ehAdmin, meuPerfil, carregarLancamentos,
-  inserirLancamentos, carregarClientes,
+  inserirLancamentos, carregarClientes, carregarDespesasFixas,
+  inserirDespesaFixa, excluirDespesaFixa,
 } from "./supabase";
-import { conectarDrive } from "./drive";
+import { conectarDrive, sincronizarManual } from "./drive";
 
 /* ---------- paleta ---------- */
 const C = {
@@ -134,11 +135,16 @@ function Client({ user, logout }) {
   const [tab, setTab] = useState("visao");
   const [txs, setTxs] = useState([]);
   const [perfil, setPerfil] = useState(null);
+  const [despesas, setDespesas] = useState([]);
   const [load, setLoad] = useState(true);
 
   const recarregar = async () => {
-    const [{ txs }, p] = await Promise.all([carregarLancamentos(), meuPerfil()]);
-    setTxs(txs); setPerfil(p); setLoad(false);
+    const [{ txs: t }, p, { despesas: d }] = await Promise.all([
+      carregarLancamentos(),
+      meuPerfil(),
+      carregarDespesasFixas(),
+    ]);
+    setTxs(t); setPerfil(p); setDespesas(d); setLoad(false);
   };
   useEffect(() => { recarregar(); }, []);
 
@@ -160,22 +166,26 @@ function Client({ user, logout }) {
     const rE = txs.filter((t) => t.type === "entrada" && realized(t.date)).reduce((s, t) => s + t.amount, 0);
     const rS = txs.filter((t) => t.type === "saida" && realized(t.date)).reduce((s, t) => s + t.amount, 0);
     const caixa = Number(perfil?.saldo_inicial || 0) + rE - rS;
-    const fixa = txs.filter((t) => t.type === "saida" && t.fixa && mk(new Date(t.date + "T12:00:00")) === cur).reduce((s, t) => s + t.amount, 0);
-    const reserva = fixa;
+
+    // despesas_fixas do banco (usa reserva_meses do perfil)
+    const totalFixo = despesas.reduce((s, d) => s + Number(d.valor), 0);
+    const mesesReserva = Number(perfil?.reserva_meses || 1);
+    const reserva = totalFixo * mesesReserva;
+
     const proj = []; let run = caixa;
     for (let i = 1; i <= 5; i++) {
       const key = mk(addMonths(TODAY, i));
       const ent = txs.filter((t) => t.type === "entrada" && mk(new Date(t.date + "T12:00:00")) === key).reduce((s, t) => s + t.amount, 0);
-      run = run + ent - fixa;
-      proj.push({ key, label: monthLabel(key), entrada: ent, fixa, caixaFim: Math.round(run) });
+      run = run + ent - totalFixo;
+      proj.push({ key, label: monthLabel(key), entrada: ent, fixa: totalFixo, caixaFim: Math.round(run) });
     }
     const prox = proj[0] || { entrada: 0, key: mk(addMonths(TODAY, 1)) };
-    const podeGastar = caixa + prox.entrada - fixa - reserva;
-    const coberto = caixa + prox.entrada >= fixa + reserva;
+    const podeGastar = caixa + prox.entrada - totalFixo - reserva;
+    const coberto = caixa + prox.entrada >= totalFixo + reserva;
     const lucro = entradasMes - (saidasMes - proLabore - investido);
     const cats = Object.entries(catMap).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
-    return { caixa, entradasMes, saidasMes, fixa, reserva, proj, prox, podeGastar, coberto, proLabore, investido, lucro, cats };
-  }, [txs, perfil]);
+    return { caixa, entradasMes, saidasMes, fixa: totalFixo, reserva, mesesReserva, proj, prox, podeGastar, coberto, proLabore, investido, lucro, cats };
+  }, [txs, perfil, despesas]);
 
   if (load) return <Centro><Loader2 size={26} color={C.gold} className="animate-spin" /></Centro>;
 
@@ -183,14 +193,15 @@ function Client({ user, logout }) {
     <div className="mx-auto px-4 py-5" style={{ maxWidth: 1060 }}>
       <TopBar logout={logout} label="Cliente" />
       <div className="flex gap-1.5 mb-5 flex-wrap">
-        {[["visao", "Visão geral", LayoutGrid], ["lancar", "Lançar", Plus], ["negocio", "Negócio", Briefcase], ["lancamentos", "Lançamentos", ListOrdered]].map(([k, l, I]) => (
+        {[["visao", "Visão geral", LayoutGrid], ["lancar", "Lançar", Plus], ["negocio", "Negócio", Briefcase], ["lancamentos", "Lançamentos", ListOrdered], ["fixas", "Despesas fixas", Settings]].map(([k, l, I]) => (
           <button key={k} onClick={() => setTab(k)} className="flex items-center gap-2 px-3.5 py-2 rounded-lg" style={{ fontSize: 13, fontWeight: 500, background: tab === k ? C.panel2 : "transparent", color: tab === k ? C.text : C.muted, border: `1px solid ${tab === k ? C.border2 : "transparent"}` }}><I size={15} /> {l}</button>
         ))}
       </div>
-      {tab === "visao" && <Visao calc={calc} perfil={perfil} user={user} onPlanilha={recarregar} txs={txs} />}
+      {tab === "visao" && <Visao calc={calc} perfil={perfil} user={user} onPlanilha={recarregar} txs={txs} despesas={despesas} />}
       {tab === "lancar" && <Lancar user={user} onAdd={recarregar} />}
       {tab === "negocio" && <Negocio calc={calc} />}
       {tab === "lancamentos" && <Lista txs={txs} />}
+      {tab === "fixas" && <DespesasFixas despesas={despesas} onUpdate={recarregar} />}
     </div>
   );
 }
@@ -220,14 +231,14 @@ function DriveCard({ perfil, user, txs, onPlanilha }) {
   );
 }
 
-function Visao({ calc, perfil, user, onPlanilha, txs }) {
+function Visao({ calc, perfil, user, onPlanilha, txs, despesas }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(205px, 1fr))" }}>
         <Stat icon={Wallet} label="Caixa atual" value={brl(calc.caixa)} accent={C.gold} sub="Saldo disponível hoje" />
         <Stat icon={ArrowUpRight} label="Entradas do mês" value={brl(calc.entradasMes)} accent={C.emer} />
         <Stat icon={ArrowDownRight} label="Saídas do mês" value={brl(calc.saidasMes)} accent={C.coral} />
-        <Stat icon={TrendingUp} label="Pode gastar mês que vem" value={brl(calc.podeGastar)} accent={C.gold} sub="Com 1 mês de reserva" />
+        <Stat icon={TrendingUp} label="Pode gastar mês que vem" value={brl(calc.podeGastar)} accent={C.gold} sub={`Com ${calc.mesesReserva} ${calc.mesesReserva === 1 ? "mês" : "meses"} de reserva`} />
       </div>
       <DriveCard perfil={perfil} user={user} txs={txs} onPlanilha={onPlanilha} />
       <Panel>
@@ -246,24 +257,122 @@ function Visao({ calc, perfil, user, onPlanilha, txs }) {
           </div>
         )}
       </Panel>
+      {despesas.length > 0 && (
+        <Panel>
+          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 10 }}>Despesas fixas mensais</div>
+          {despesas.map((d) => (
+            <div key={d.id} className="flex items-center justify-between py-1.5" style={{ fontSize: 13, borderTop: `1px solid ${C.border}` }}>
+              <span style={{ color: C.muted }}>{d.nome}</span>
+              <span style={{ color: C.coral }}>{brl(d.valor)}</span>
+            </div>
+          ))}
+          <div className="flex items-center justify-between pt-2 mt-1" style={{ fontSize: 13, fontWeight: 600, borderTop: `1px solid ${C.border2}` }}>
+            <span>Total fixo</span><span style={{ color: C.coral }}>{brl(calc.fixa)}</span>
+          </div>
+        </Panel>
+      )}
     </div>
   );
 }
 
+/* ============================== DESPESAS FIXAS ============================== */
+function DespesasFixas({ despesas, onUpdate }) {
+  const [nome, setNome] = useState("");
+  const [valor, setValor] = useState("");
+  const [load, setLoad] = useState(false);
+  const field = { background: C.panel2, border: `1px solid ${C.border}`, color: C.text, fontSize: 13, borderRadius: 8, padding: "9px 11px", outline: "none" };
+
+  const adicionar = async () => {
+    const v = parseFloat(String(valor).replace(".", "").replace(",", "."));
+    if (!nome.trim() || !v) return;
+    setLoad(true);
+    await inserirDespesaFixa(nome.trim(), v);
+    setNome(""); setValor(""); setLoad(false);
+    onUpdate();
+  };
+
+  const excluir = async (id) => {
+    await excluirDespesaFixa(id);
+    onUpdate();
+  };
+
+  return (
+    <div className="grid gap-4" style={{ gridTemplateColumns: "minmax(0,520px)", justifyContent: "center" }}>
+      <Panel>
+        <div className="flex items-center gap-2 mb-1" style={{ fontSize: 14, fontWeight: 600 }}><Settings size={16} color={C.gold} /> Despesas fixas</div>
+        <p style={{ fontSize: 12.5, color: C.muted, marginBottom: 16 }}>Aluguel, internet, assinaturas — tudo que sai todo mês. Isso alimenta a projeção de caixa e o cálculo de reserva.</p>
+        <div className="flex flex-col gap-2 mb-4">
+          <input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome (ex: Aluguel)" style={{ ...field, width: "100%" }} />
+          <div className="flex gap-2">
+            <input value={valor} onChange={(e) => setValor(e.target.value)} placeholder="Valor (R$)" inputMode="decimal" style={{ ...field, flex: 1 }} />
+            <button onClick={adicionar} disabled={load} className="rounded-lg px-4 flex items-center gap-2" style={{ background: C.gold, color: "#16213a", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>{load ? <Loader2 size={15} className="animate-spin" /> : <><Plus size={15} /> Adicionar</>}</button>
+          </div>
+        </div>
+        {despesas.length === 0
+          ? <div style={{ fontSize: 13, color: C.faint, padding: "12px 0" }}>Nenhuma despesa fixa cadastrada ainda.</div>
+          : despesas.map((d, i) => (
+            <div key={d.id} className="flex items-center justify-between py-2.5 gap-3" style={{ borderTop: i ? `1px solid ${C.border}` : "none" }}>
+              <span style={{ fontSize: 13, flex: 1 }}>{d.nome}</span>
+              <span style={{ fontSize: 13, color: C.coral, fontWeight: 600 }}>{brl(d.valor)}</span>
+              <button onClick={() => excluir(d.id)} style={{ background: "none", border: "none", cursor: "pointer", color: C.faint, padding: 4 }}><Trash2 size={15} /></button>
+            </div>
+          ))}
+        {despesas.length > 0 && (
+          <div className="flex justify-between pt-2 mt-1" style={{ fontSize: 13, fontWeight: 600, borderTop: `1px solid ${C.border2}` }}>
+            <span>Total mensal</span>
+            <span style={{ color: C.coral }}>{brl(despesas.reduce((s, d) => s + Number(d.valor), 0))}</span>
+          </div>
+        )}
+      </Panel>
+    </div>
+  );
+}
+
+/* ============================== LANCAR ============================== */
 function Lancar({ user, onAdd }) {
-  const [type, setType] = useState("saida"); const [amt, setAmt] = useState(""); const [cat, setCat] = useState("Alimentação"); const [desc, setDesc] = useState(""); const [inst, setInst] = useState(1); const [load, setLoad] = useState(false);
-  const cats = ["Alimentação", "Moradia", "Transporte", "Assinaturas", "Lazer", "Pró-labore", "Investimento", "Vendas", "Outros"];
+  const [type, setType] = useState("saida");
+  const [amt, setAmt] = useState("");
+  const [cat, setCat] = useState("Alimentação");
+  const [desc, setDesc] = useState("");
+  const [inst, setInst] = useState(1);
+  const [load, setLoad] = useState(false);
+  const cats = ["Alimentação", "Moradia", "Transporte", "Assinaturas", "Lazer", "Saúde", "Pró-labore", "Investimento", "Vendas", "Outros"];
   const field = { background: C.panel2, border: `1px solid ${C.border}`, color: C.text, fontSize: 13, borderRadius: 8, padding: "9px 11px", width: "100%", outline: "none" };
+
   const salvar = async () => {
     const tot = parseFloat(String(amt).replace(".", "").replace(",", ".")); if (!tot) return;
     const n = Number(inst), valor = Number((tot / n).toFixed(2)); const linhas = [];
+    // gera grupo_parcela para rastrear parcelas da mesma operação
+    const grupoParcela = n > 1 ? crypto.randomUUID() : null;
     for (let i = 0; i < n; i++) {
       const d = addMonths(TODAY, i);
-      linhas.push({ tipo: type, valor, categoria: cat, descricao: desc || cat, data: mk(d) + "-" + String(Math.min(TODAY.getDate(), 28)).padStart(2, "0"), fixa: false, parcela_atual: n > 1 ? i + 1 : null, parcela_total: n > 1 ? n : null });
+      linhas.push({
+        tipo: type, valor, categoria: cat,
+        descricao: n > 1 ? `${desc || cat} — parcela ${i + 1}/${n}` : (desc || cat),
+        data: mk(d) + "-" + String(Math.min(TODAY.getDate(), 28)).padStart(2, "0"),
+        fixa: false,
+        grupo_parcela: grupoParcela,
+        parcela_atual: n > 1 ? i + 1 : null,
+        parcela_total: n > 1 ? n : null,
+      });
     }
-    setLoad(true); await inserirLancamentos(linhas, user.id); setLoad(false);
+    setLoad(true);
+    await inserirLancamentos(linhas, user.id);
+
+    // sincroniza com a planilha do Drive se o cliente tiver conectado
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        await sincronizarManual(session.access_token, linhas.map((l) => ({
+          data: l.data, tipo: l.tipo, categoria: l.categoria, descricao: l.descricao, valor: l.valor,
+        })));
+      }
+    } catch (_) { /* silencioso se Drive não estiver conectado */ }
+
+    setLoad(false);
     setAmt(""); setDesc(""); setInst(1); onAdd();
   };
+
   return (
     <div className="grid gap-4" style={{ gridTemplateColumns: "minmax(0,460px)", justifyContent: "center" }}>
       <Panel>
@@ -282,6 +391,7 @@ function Lancar({ user, onAdd }) {
   );
 }
 
+/* ============================== NEGOCIO ============================== */
 function Negocio({ calc }) {
   return (
     <div className="flex flex-col gap-4">
@@ -298,7 +408,7 @@ function Negocio({ calc }) {
         <Stat icon={Banknote} label="Pró-labore do mês" value={brl0(calc.proLabore)} accent={C.gold} sub="Seu salário, separado do caixa" />
         <Stat icon={PiggyBank} label="Investido no mês" value={brl0(calc.investido)} accent={C.emer} />
         <Stat icon={DollarSign} label="Lucro da operação" value={brl0(calc.lucro)} accent={C.gold} sub="Entradas menos custos operacionais" />
-        <Stat icon={Target} label="Reserva de segurança" value={brl0(calc.reserva)} accent={C.emer} sub="1 mês de custo fixo" />
+        <Stat icon={Target} label="Reserva de segurança" value={brl0(calc.reserva)} accent={C.emer} sub={`${calc.mesesReserva} ${calc.mesesReserva === 1 ? "mês" : "meses"} de custo fixo`} />
       </div>
       <Panel>
         <div style={{ fontSize: 14, fontWeight: 500 }}>Previsibilidade de caixa · próximos 5 meses</div>
@@ -319,6 +429,7 @@ function Negocio({ calc }) {
   );
 }
 
+/* ============================== LISTA ============================== */
 function Lista({ txs }) {
   const fmt = (d) => new Date(d + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
   if (txs.length === 0) return <Panel><div style={{ fontSize: 13, color: C.faint, padding: 16 }}>Nenhum lançamento ainda.</div></Panel>;
@@ -332,7 +443,7 @@ function Lista({ txs }) {
             <div key={t.id} className="flex items-center gap-3 py-2.5" style={{ borderTop: i ? `1px solid ${C.border}` : "none" }}>
               <div className="flex items-center justify-center rounded-lg" style={{ width: 34, height: 34, flexShrink: 0, background: (t.type === "entrada" ? C.emer : C.coral) + "1c" }}>{t.type === "entrada" ? <ArrowUpRight size={17} color={C.emer} /> : <ArrowDownRight size={17} color={C.coral} />}</div>
               <div className="flex-1" style={{ minWidth: 0 }}>
-                <div className="flex items-center gap-2" style={{ fontSize: 13.5 }}><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.desc}</span>{fut && <Badge color={C.faint}>previsto</Badge>}</div>
+                <div className="flex items-center gap-2" style={{ fontSize: 13.5 }}><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.desc}</span>{fut && <Badge color={C.faint}>previsto</Badge>}{t.parcela && <Badge color={C.gold}>{t.parcela}</Badge>}</div>
                 <div style={{ fontSize: 11.5, color: C.faint }}>{fmt(t.date)} · {t.category}</div>
               </div>
               <div style={{ fontSize: 14, fontWeight: 600, color: t.type === "entrada" ? C.emer : C.coral, flexShrink: 0 }}>{t.type === "entrada" ? "+" : "-"}{brl(t.amount)}</div>

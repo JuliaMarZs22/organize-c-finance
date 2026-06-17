@@ -1,25 +1,28 @@
 -- ============================================================
---  Caixa Inteligente — banco de dados (Supabase / PostgreSQL)
---  Cole isto no SQL Editor do Supabase e rode uma vez.
---  O isolamento por cliente é garantido pelo Row-Level Security
---  no fim do arquivo: cada cliente só enxerga os próprios dados.
+--  Organize-C Finance — banco de dados COMPLETO (Supabase / PostgreSQL)
+--  Cole no SQL Editor do Supabase e rode UMA VEZ.
+--  Este arquivo é auto-suficiente: inclui todas as tabelas,
+--  colunas extras e políticas necessárias para o sistema inteiro.
 -- ============================================================
 
 -- ----------- 1. CLIENTES (cada conta = um "tenant") -----------
-create table clientes (
+create table if not exists clientes (
   id            uuid primary key references auth.users(id) on delete cascade,
   nome          text not null,
-  telefone      text unique not null,          -- chave que o bot usa pra achar o cliente
-  tipo          text not null default 'pessoa' -- 'pessoa' ou 'empreendedor'
+  telefone      text unique not null,
+  tipo          text not null default 'pessoa'
                 check (tipo in ('pessoa', 'empreendedor')),
   saldo_inicial numeric(12,2) not null default 0,
-  reserva_meses int not null default 1,        -- meses de custo fixo guardados de reserva
+  reserva_meses int not null default 1,
+  email         text,
+  plano         text,
+  status        text default 'ativo',
+  planilha_url  text,
   criado_em     timestamptz not null default now()
 );
 
 -- ----------- 2. CATEGORIAS (personalizáveis por cliente) -----------
--- É aqui que entra o "comida da rua como a pessoa definir".
-create table categorias (
+create table if not exists categorias (
   id         uuid primary key default gen_random_uuid(),
   cliente_id uuid not null references clientes(id) on delete cascade,
   nome       text not null,
@@ -28,52 +31,70 @@ create table categorias (
   unique (cliente_id, nome, tipo)
 );
 
--- ----------- 3. DESPESAS FIXAS (base da projeção do empreendedor) -----------
-create table despesas_fixas (
+-- ----------- 3. DESPESAS FIXAS (base da projeção) -----------
+create table if not exists despesas_fixas (
   id         uuid primary key default gen_random_uuid(),
   cliente_id uuid not null references clientes(id) on delete cascade,
   nome       text not null,
   valor      numeric(12,2) not null,
+  ativa      boolean not null default true,
   criado_em  timestamptz not null default now()
 );
 
--- ----------- 4. LANCAMENTOS (o coração: entradas e saídas) -----------
-create table lancamentos (
+-- ----------- 4. LANCAMENTOS (entradas e saídas) -----------
+create table if not exists lancamentos (
   id            uuid primary key default gen_random_uuid(),
   cliente_id    uuid not null references clientes(id) on delete cascade,
   tipo          text not null check (tipo in ('entrada', 'saida')),
-  valor         numeric(12,2) not null check (valor > 0),  -- valor JÁ por parcela
+  valor         numeric(12,2) not null check (valor > 0),
   categoria     text not null,
   descricao     text,
-  data          date not null,                 -- mês/ano define em qual mês cai a parcela
+  data          date not null,
   fixa          boolean not null default false,
-  -- controle de venda parcelada (ex.: 10 mil em 5x -> 5 linhas de 2 mil):
-  grupo_parcela uuid,                           -- mesmo id liga as parcelas da mesma venda
-  parcela_atual int,                            -- 1, 2, 3...
-  parcela_total int,                            -- total de parcelas
-  origem        text not null default 'whatsapp' -- 'whatsapp' ou 'manual'
+  grupo_parcela uuid,
+  parcela_atual int,
+  parcela_total int,
+  origem        text not null default 'whatsapp'
                 check (origem in ('whatsapp', 'manual')),
   criado_em     timestamptz not null default now()
 );
 
-create index idx_lancamentos_cliente_data on lancamentos (cliente_id, data);
+create index if not exists idx_lancamentos_cliente_data on lancamentos (cliente_id, data);
 
--- ============================================================
---  ISOLAMENTO POR CLIENTE (Row-Level Security)
---  Com isto ligado, um cliente logado no dashboard NUNCA
---  consegue ler ou gravar a linha de outro — o próprio banco
---  bloqueia, mesmo que houvesse um bug no código.
---  Obs.: o bot do WhatsApp escreve usando a "service_role key",
---  que passa por cima do RLS, mas no código ele SEMPRE grava
---  com o cliente_id correto, resolvido pelo telefone.
--- ============================================================
+-- ----------- 5. GOOGLE CREDENTIALS (tokens por cliente) -----------
+-- Sem RLS "para usuário" = apenas service_role acessa. O refresh_token
+-- nunca é exposto ao front; só o backend (drive-backend.js) lê/grava.
+create table if not exists google_creds (
+  cliente_id    uuid primary key references clientes(id) on delete cascade,
+  refresh_token text,
+  planilha_id   text
+);
+alter table google_creds enable row level security;
+-- Sem policy = nenhum usuário autenticado acessa diretamente. Só service_role.
+
+-- ----------- 6. ADMINS -----------
+create table if not exists admins (
+  email text primary key
+);
+alter table admins enable row level security;
+create policy "cada admin vê o próprio registro"
+  on admins for select
+  using (email = auth.jwt()->>'email');
+
+-- ----------- 7. ROW-LEVEL SECURITY -----------
 alter table clientes       enable row level security;
 alter table categorias     enable row level security;
 alter table despesas_fixas enable row level security;
 alter table lancamentos    enable row level security;
 
+-- Cliente vê apenas os próprios dados
 create policy "cliente vê o próprio cadastro"
   on clientes for all using (id = auth.uid());
+
+-- Admin também vê todos os clientes (para o painel admin)
+create policy "admin lê todos os clientes"
+  on clientes for select
+  using (exists (select 1 from admins a where a.email = auth.jwt()->>'email'));
 
 create policy "cliente vê as próprias categorias"
   on categorias for all using (cliente_id = auth.uid());
@@ -83,3 +104,7 @@ create policy "cliente vê as próprias despesas fixas"
 
 create policy "cliente vê os próprios lançamentos"
   on lancamentos for all using (cliente_id = auth.uid());
+
+-- ----------- 8. INSERIR SEU ADMIN -----------
+-- Troque pelo e-mail que você usa para acessar o painel admin:
+-- insert into admins (email) values ('SEU-EMAIL-ADMIN@dominio.com');

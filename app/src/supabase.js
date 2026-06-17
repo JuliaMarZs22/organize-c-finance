@@ -20,33 +20,61 @@ export async function ehAdmin(email) {
   return !!data;
 }
 
-/* ---------- DADOS DO CLIENTE (RLS já limita ao próprio) ---------- */
+/* ---------- DADOS DO CLIENTE ---------- */
 export async function meuPerfil() {
   const { data } = await supabase.from("clientes").select("*").maybeSingle();
   return data;
 }
+
 export async function carregarLancamentos() {
   const { data, error } = await supabase
     .from("lancamentos")
     .select("id, tipo, valor, categoria, descricao, data, fixa, parcela_atual, parcela_total")
     .order("data", { ascending: false });
   const txs = (data || []).map((r) => ({
-    id: r.id, type: r.tipo, amount: Number(r.valor), category: r.categoria,
-    desc: r.descricao, date: r.data, fixa: r.fixa,
+    id: r.id,
+    type: r.tipo,
+    amount: Number(r.valor),
+    category: r.categoria,
+    desc: r.descricao,
+    date: r.data,
+    fixa: r.fixa,
     parcela: r.parcela_total ? `${r.parcela_atual}/${r.parcela_total}` : undefined,
   }));
   return { txs, error };
 }
+
 export async function inserirLancamentos(linhas, clienteId) {
   const comDono = linhas.map((l) => ({ ...l, cliente_id: clienteId, origem: "manual" }));
   const { error } = await supabase.from("lancamentos").insert(comDono);
   return { error };
 }
+
+/* ---------- DESPESAS FIXAS ---------- */
+export async function carregarDespesasFixas() {
+  const { data, error } = await supabase
+    .from("despesas_fixas")
+    .select("id, nome, valor, ativa")
+    .eq("ativa", true)
+    .order("nome");
+  return { despesas: data || [], error };
+}
+
+export async function inserirDespesaFixa(nome, valor) {
+  const { error } = await supabase.from("despesas_fixas").insert({ nome, valor });
+  return { error };
+}
+
+export async function excluirDespesaFixa(id) {
+  const { error } = await supabase.from("despesas_fixas").update({ ativa: false }).eq("id", id);
+  return { error };
+}
+
 export async function salvarPlanilhaUrl(url, clienteId) {
   await supabase.from("clientes").update({ planilha_url: url }).eq("id", clienteId);
 }
 
-/* ---------- ADMIN (requer a policy de admin no banco) ---------- */
+/* ---------- ADMIN ---------- */
 export async function carregarClientes() {
   const { data, error } = await supabase
     .from("clientes")
