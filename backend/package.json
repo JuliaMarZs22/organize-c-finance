@@ -1,0 +1,15 @@
+{
+  "name": "organize-c-finance-backend",
+  "version": "1.0.0",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "whatsapp": "node webhook-whatsapp.js",
+    "provisionamento": "node provisionamento-guru.js",
+    "drive": "node drive-backend.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "@supabase/supabase-js": "^2.45.0"
+  }
+}
