@@ -46,7 +46,9 @@ export async function carregarDespesasFixas() {
   return { despesas: data || [], error };
 }
 export async function inserirDespesaFixa(nome, valor) {
-  const { error } = await supabase.from("despesas_fixas").insert({ nome, valor });
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: new Error("Usuário não autenticado") };
+  const { error } = await supabase.from("despesas_fixas").insert({ nome, valor, cliente_id: user.id });
   return { error };
 }
 export async function excluirDespesaFixa(id) {
