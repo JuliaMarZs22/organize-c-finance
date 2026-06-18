@@ -59,14 +59,27 @@ async function baixarAudio(mediaId) {
   return Buffer.from(await bin.arrayBuffer());
 }
 
-// --- transcrever (Groq Whisper) ---
+// --- transcrever (Groq Whisper ou OpenAI Whisper como fallback) ---
 async function transcrever(buf) {
   const form = new FormData();
   form.append("file", new Blob([buf], { type: "audio/ogg" }), "audio.ogg");
-  form.append("model", "whisper-large-v3");
   form.append("language", "pt");
-  const r = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
-    method: "POST", headers: { Authorization: `Bearer ${GROQ_API_KEY}` }, body: form,
+
+  if (GROQ_API_KEY) {
+    form.append("model", "whisper-large-v3");
+    const r = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+      method: "POST", headers: { Authorization: `Bearer ${GROQ_API_KEY}` }, body: form,
+    });
+    const j = await r.json();
+    return (j.text || "").trim();
+  }
+
+  // fallback: OpenAI Whisper
+  form.append("model", "whisper-1");
+  const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+    body: form,
   });
   const j = await r.json();
   return (j.text || "").trim();
