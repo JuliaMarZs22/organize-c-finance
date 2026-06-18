@@ -73,7 +73,9 @@ app.post("/webhook/guru", async (req, res) => {
 
     const email = b.contact?.email;
     const nome = b.contact?.name || "Cliente";
-    const telefone = soDigitos((b.contact?.phone_local_code || "") + (b.contact?.phone_number || ""));
+    const telefone = b.contact?.phone_number
+      ? soDigitos("55" + (b.contact.phone_local_code || "") + b.contact.phone_number)
+      : null;
 
     if (["refunded", "chargeback", "canceled"].includes(b.status)) {
       if (email) await supabase.from("clientes").update({ status: "cancelado" }).eq("email", email);

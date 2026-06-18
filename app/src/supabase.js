@@ -58,9 +58,17 @@ export async function excluirDespesaFixa(id) {
 export async function salvarPlanilhaUrl(url, clienteId) {
   await supabase.from("clientes").update({ planilha_url: url }).eq("id", clienteId);
 }
+export async function atualizarSaldoInicial(valor) {
+  const { error } = await supabase.from("clientes").update({ saldo_inicial: valor });
+  return { error };
+}
 export async function carregarClientes() {
   const { data, error } = await supabase
     .from("clientes").select("id, nome, telefone, email, plano, status, criado_em")
     .order("criado_em", { ascending: false });
   return { clientes: data || [], error };
+}
+export async function atualizarCliente(id, campos) {
+  const { error } = await supabase.from("clientes").update(campos).eq("id", id);
+  return { error };
 }

@@ -13,6 +13,7 @@ import {
   supabase, entrar, sair, usuarioAtual, ehAdmin, meuPerfil,
   carregarLancamentos, inserirLancamentos, carregarClientes,
   carregarDespesasFixas, inserirDespesaFixa, excluirDespesaFixa,
+  atualizarSaldoInicial, atualizarCliente,
 } from "./supabase";
 import { sincronizarManual } from "./drive";
 
@@ -74,6 +75,22 @@ export default function App() {
   </div>;
 }
 
+/* ─── RECUPERAR SENHA ─────────────────────────────────────────────── */
+function RecuperarSenha({email}) {
+  const[enviado,setEnviado]=useState(false);const[load,setLoad]=useState(false);
+  const enviar=async()=>{
+    const e=(email||"").trim();
+    if(!e)return alert("Digite seu e-mail acima primeiro.");
+    setLoad(true);
+    await supabase.auth.resetPasswordForEmail(e,{redirectTo:`${window.location.origin}/reset`});
+    setLoad(false);setEnviado(true);
+  };
+  if(enviado)return<div style={{fontSize:12,color:C.emer,textAlign:"center",marginTop:12}}>✅ Link enviado para {email}. Verifique seu e-mail.</div>;
+  return<button onClick={enviar} disabled={load} style={{background:"none",border:"none",color:C.faint,fontSize:12,cursor:"pointer",marginTop:10,width:"100%",textDecoration:"underline"}}>
+    {load?"Enviando…":"Esqueci minha senha"}
+  </button>;
+}
+
 /* ─── LOGIN — apenas email + senha, sem "criar conta" ────────────── */
 function Login({onLogin}) {
   const[email,setEmail]=useState("");
@@ -110,6 +127,7 @@ function Login({onLogin}) {
           <button onClick={submit} disabled={load} className="rounded-xl py-3 mt-1 flex items-center justify-center gap-2" style={{background:load?C.goldDeep:C.gold,color:"#16213a",fontSize:14.5,fontWeight:600,cursor:load?"not-allowed":"pointer"}}>
             {load?<><Loader2 size={17} className="animate-spin"/> Entrando…</>:"Entrar"}
           </button>
+          <RecuperarSenha email={email}/>
         </div>
         <p style={{fontSize:11.5,color:C.faint,textAlign:"center",marginTop:20,lineHeight:1.6}}>
           Acesso exclusivo para assinantes.<br/>
@@ -194,7 +212,7 @@ function Client({user,logout}) {
     <div className="flex gap-1.5 mb-5 flex-wrap">
       {TABS.map(([k,l,I])=><button key={k} onClick={()=>setTab(k)} className="flex items-center gap-2 px-3.5 py-2 rounded-lg" style={{fontSize:13,fontWeight:500,cursor:"pointer",background:tab===k?C.panel2:"transparent",color:tab===k?C.text:C.muted,border:`1px solid ${tab===k?C.border2:"transparent"}`}}><I size={15}/> {l}</button>)}
     </div>
-    {tab==="visao"&&<Visao calc={calc} perfil={perfil} despesas={despesas} showToast={showToast}/>}
+    {tab==="visao"&&<Visao calc={calc} perfil={perfil} despesas={despesas} showToast={showToast} onUpdate={recarregar}/>}
     {tab==="lancar"&&<Lancar user={user} onAdd={recarregar} showToast={showToast}/>}
     {tab==="negocio"&&<Negocio calc={calc}/>}
     {tab==="lancamentos"&&<Lista txs={txs} onDelete={recarregar} showToast={showToast}/>}
@@ -203,14 +221,20 @@ function Client({user,logout}) {
 }
 
 /* ─── VISÃO GERAL ─────────────────────────────────────────────────── */
-function Visao({calc,perfil,despesas}) {
+function Visao({calc,perfil,despesas,onUpdate,showToast}) {
+  const[editSaldo,setEditSaldo]=useState(false);const[saldoVal,setSaldoVal]=useState("");const[savingS,setSavingS]=useState(false);
+  const salvarSaldo=async()=>{const v=parseBRL(saldoVal);if(isNaN(v))return showToast("Valor inválido","error");setSavingS(true);const{error}=await atualizarSaldoInicial(v);setSavingS(false);if(error)return showToast("Erro ao salvar","error");setEditSaldo(false);showToast("Saldo inicial atualizado!");onUpdate();};
+  const field={background:C.panel2,border:`1px solid ${C.border}`,color:C.text,fontSize:13,borderRadius:8,padding:"7px 10px",outline:"none"};
   return <div className="flex flex-col gap-4">
     <div className="grid gap-4" style={{gridTemplateColumns:"repeat(auto-fit, minmax(205px, 1fr))"}}>
-      <Stat icon={Wallet} label="Caixa atual" value={brl(calc.caixa)} accent={C.gold} sub="Saldo disponível hoje"/>
+      <div onClick={()=>{if(!editSaldo){setSaldoVal(String(perfil?.saldo_inicial||0));setEditSaldo(true);}}} style={{cursor:"pointer"}}>
+        <Stat icon={Wallet} label="Caixa atual" value={brl(calc.caixa)} accent={C.gold} sub={editSaldo?<span onClick={(e)=>e.stopPropagation()} className="flex gap-1 items-center mt-1"><input autoFocus value={saldoVal} onChange={(e)=>setSaldoVal(e.target.value)} style={{...field,width:110}} placeholder="Saldo inicial"/><button onClick={salvarSaldo} disabled={savingS} style={{background:C.gold,color:"#16213a",border:"none",borderRadius:6,padding:"4px 8px",fontSize:12,cursor:"pointer"}}>{savingS?"…":"OK"}</button><button onClick={()=>setEditSaldo(false)} style={{background:"none",border:"none",color:C.faint,fontSize:12,cursor:"pointer"}}>✕</button></span>:"Clique para definir saldo inicial"}/>
+      </div>
       <Stat icon={ArrowUpRight} label="Entradas do mês" value={brl(calc.entradasMes)} accent={C.emer}/>
       <Stat icon={ArrowDownRight} label="Saídas do mês" value={brl(calc.saidasMes)} accent={C.coral}/>
       <Stat icon={TrendingUp} label="Pode gastar mês que vem" value={brl(calc.podeGastar)} accent={C.gold} sub={`Com ${calc.mesesReserva} ${calc.mesesReserva===1?"mês":"meses"} de reserva`}/>
     </div>
+
     <WhatsAppBanner/>
     <Panel>
       <div className="flex items-center justify-between mb-3"><div style={{fontSize:14,fontWeight:500}}>Gastos por categoria</div><div style={{fontSize:12,color:C.faint}}>{brl(calc.saidasMes)}</div></div>
@@ -355,7 +379,10 @@ function Negocio({calc}) {
 /* ─── ADMIN ───────────────────────────────────────────────────────── */
 function Admin({logout}) {
   const[clientes,setClientes]=useState([]);const[q,setQ]=useState("");const[filtro,setFiltro]=useState("todos");const[load,setLoad]=useState(true);
+  const[editando,setEditando]=useState(null); // {id, campo, valor}
   const[showToast,toastNode]=useToast();
+  const recarregarAdmin=()=>carregarClientes().then(({clientes:c})=>setClientes(c||[]));
+  const salvarEdicao=async()=>{if(!editando)return;const{error}=await atualizarCliente(editando.id,{[editando.campo]:editando.valor});if(error)return showToast("Erro ao salvar","error");showToast("Atualizado!");setEditando(null);recarregarAdmin();};
   const PRECO={anual:497,mensal:67};
   useEffect(()=>{carregarClientes().then(({clientes:c})=>setClientes(c||[])).finally(()=>setLoad(false));},[]);
   const NOW=today();
@@ -387,13 +414,22 @@ function Admin({logout}) {
         </div>
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-            <thead><tr style={{color:C.faint,fontSize:11.5,textTransform:"uppercase",letterSpacing:".05em"}}>{["Cliente","WhatsApp","Plano","Status","Entrou em"].map((h)=><th key={h} style={{textAlign:"left",padding:"10px 12px",borderBottom:`1px solid ${C.border}`}}>{h}</th>)}</tr></thead>
+            <thead><tr style={{color:C.faint,fontSize:11.5,textTransform:"uppercase",letterSpacing:".05em"}}>{["Cliente","WhatsApp","Plano","Status","Entrou em","Ações"].map((h)=><th key={h} style={{textAlign:"left",padding:"10px 12px",borderBottom:`1px solid ${C.border}`}}>{h}</th>)}</tr></thead>
             <tbody>{list.map((c)=><tr key={c.id} style={{borderBottom:`1px solid ${C.border}`}}>
               <td style={{padding:12}}><div className="flex items-center gap-2.5"><div style={{width:30,height:30,borderRadius:"50%",background:C.panel2,border:`1px solid ${C.border}`,fontSize:12,color:C.gold,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{(c.nome||"?")[0].toUpperCase()}</div><div><div style={{fontWeight:500}}>{c.nome||"—"}</div>{c.email&&<div style={{fontSize:11,color:C.faint}}>{c.email}</div>}</div></div></td>
               <td style={{padding:12,color:C.muted}}>{c.telefone||"—"}</td>
-              <td style={{padding:12,color:C.muted,textTransform:"capitalize"}}>{c.plano||"—"}</td>
-              <td style={{padding:12}}><Badge color={cor(c.status)}>{lbl(c.status)}</Badge></td>
+              <td style={{padding:12}}>
+                {editando?.id===c.id&&editando.campo==="plano"
+                  ?<span className="flex gap-1"><select value={editando.valor} onChange={(e)=>setEditando({...editando,valor:e.target.value})} style={{background:C.panel2,border:`1px solid ${C.border}`,color:C.text,fontSize:12,borderRadius:6,padding:"3px 6px"}}><option value="mensal">mensal</option><option value="anual">anual</option></select><button onClick={salvarEdicao} style={{background:C.gold,color:"#16213a",border:"none",borderRadius:5,padding:"2px 7px",fontSize:11,cursor:"pointer"}}>OK</button></span>
+                  :<span style={{color:C.muted,textTransform:"capitalize",cursor:"pointer",textDecoration:"underline dotted"}} onClick={()=>setEditando({id:c.id,campo:"plano",valor:c.plano||"mensal"})}>{c.plano||"—"}</span>}
+              </td>
+              <td style={{padding:12}}>
+                {editando?.id===c.id&&editando.campo==="status"
+                  ?<span className="flex gap-1"><select value={editando.valor} onChange={(e)=>setEditando({...editando,valor:e.target.value})} style={{background:C.panel2,border:`1px solid ${C.border}`,color:C.text,fontSize:12,borderRadius:6,padding:"3px 6px"}}><option value="ativo">ativo</option><option value="teste">teste</option><option value="cancelado">cancelado</option></select><button onClick={salvarEdicao} style={{background:C.gold,color:"#16213a",border:"none",borderRadius:5,padding:"2px 7px",fontSize:11,cursor:"pointer"}}>OK</button></span>
+                  :<span onClick={()=>setEditando({id:c.id,campo:"status",valor:c.status||"ativo"})} style={{cursor:"pointer"}}><Badge color={cor(c.status)}>{lbl(c.status)}</Badge></span>}
+              </td>
               <td style={{padding:12,color:C.muted}}>{c.criado_em?new Date(c.criado_em).toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric"}):"—"}</td>
+              <td style={{padding:12}}><button onClick={()=>setEditando({id:c.id,campo:"status",valor:c.status==="cancelado"?"ativo":"cancelado"})} style={{background:"none",border:`1px solid ${c.status==="cancelado"?C.emer:C.coral}`,color:c.status==="cancelado"?C.emer:C.coral,borderRadius:6,padding:"3px 9px",fontSize:11.5,cursor:"pointer"}} title={c.status==="cancelado"?"Reativar":"Cancelar"}>{c.status==="cancelado"?"Reativar":"Cancelar"}</button></td>
             </tr>)}</tbody>
           </table>
           {list.length===0&&<div style={{textAlign:"center",padding:28,color:C.faint,fontSize:13}}>Nenhum cliente encontrado.</div>}
