@@ -84,7 +84,20 @@ export default function App() {
     {screen==="recovery"&&<NovaSenha onDone={aposNovaSenha}/>}
     {screen==="client"&&<Client user={user} logout={logout}/>}
     {screen==="admin"&&<Admin logout={logout}/>}
+    {screen!=="loading"&&<SuporteFab/>}
   </div>;
+}
+
+/* ─── BOTÃO FLUTUANTE DE SUPORTE ──────────────────────────────────── */
+function SuporteFab() {
+  const link="https://wa.me/5515981732365?text=Ol%C3%A1!%20Preciso%20de%20suporte%20no%20organize-c%20Finance";
+  return <a href={link} target="_blank" rel="noopener noreferrer" title="Falar com o suporte"
+    style={{position:"fixed",right:20,bottom:20,zIndex:90,display:"flex",alignItems:"center",gap:10,
+      background:"#25d366",color:"#053d1c",fontWeight:600,fontSize:13.5,padding:"13px 18px",borderRadius:40,
+      textDecoration:"none",boxShadow:"0 16px 36px -12px rgba(0,0,0,.7)"}}>
+    <svg width="19" height="19" viewBox="0 0 24 24" fill="#053d1c"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38c1.45.79 3.08 1.21 4.79 1.21 5.46 0 9.91-4.45 9.91-9.91C21.95 6.45 17.5 2 12.04 2zm5.8 14.01c-.24.68-1.42 1.31-1.96 1.36-.5.05-1.14.07-1.84-.12-.42-.13-.97-.31-1.66-.61-2.92-1.26-4.83-4.2-4.98-4.4-.15-.2-1.18-1.57-1.18-2.99s.75-2.12 1.01-2.41c.26-.29.57-.36.76-.36.19 0 .38 0 .55.01.18.01.41-.07.65.5.24.57.81 1.97.88 2.11.07.14.12.31.02.5-.1.2-.15.31-.29.48-.15.17-.31.39-.44.52-.15.15-.3.3-.13.59.17.29.76 1.25 1.63 2.03 1.12 1 2.07 1.31 2.36 1.46.29.15.46.12.63-.07.17-.2.73-.85.93-1.14.19-.29.39-.24.65-.15.27.1 1.71.81 2 .96.29.15.49.22.56.34.07.12.07.7-.17 1.38z"/></svg>
+    Dúvidas? Chama no suporte
+  </a>;
 }
 
 /* ─── DEFINIR NOVA SENHA (link de recuperação) ────────────────────── */
