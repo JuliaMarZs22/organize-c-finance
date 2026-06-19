@@ -386,14 +386,65 @@ function Lancar({user,onAdd,showToast}) {
 /* ─── LISTA ───────────────────────────────────────────────────────── */
 function Lista({txs,onDelete,showToast}) {
   const NOW=today();const[busca,setBusca]=useState("");const[filtroTipo,setFiltroTipo]=useState("todos");const[filtroCat,setFiltroCat]=useState("todas");const[deleting,setDeleting]=useState(null);
+  const[dataDe,setDataDe]=useState("");const[dataAte,setDataAte]=useState("");
   const fmt=(d)=>new Date(d+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"});
   const cats=[...new Set(txs.map((t)=>t.category))].sort();
-  const lista=txs.filter((t)=>{if(filtroTipo!=="todos"&&t.type!==filtroTipo)return false;if(filtroCat!=="todas"&&t.category!==filtroCat)return false;if(busca&&!t.desc?.toLowerCase().includes(busca.toLowerCase())&&!t.category?.toLowerCase().includes(busca.toLowerCase()))return false;return true;});
+  const lista=txs.filter((t)=>{
+    if(filtroTipo!=="todos"&&t.type!==filtroTipo)return false;
+    if(filtroCat!=="todas"&&t.category!==filtroCat)return false;
+    if(dataDe&&t.date<dataDe)return false;
+    if(dataAte&&t.date>dataAte)return false;
+    if(busca&&!t.desc?.toLowerCase().includes(busca.toLowerCase())&&!t.category?.toLowerCase().includes(busca.toLowerCase()))return false;
+    return true;
+  });
+  // atalhos de período
+  const setMes=(offset)=>{const d=addMonths(NOW,offset);const y=d.getFullYear(),m=d.getMonth();const ini=`${y}-${String(m+1).padStart(2,"0")}-01`;const fim=new Date(y,m+1,0);const fimS=`${y}-${String(m+1).padStart(2,"0")}-${String(fim.getDate()).padStart(2,"0")}`;setDataDe(ini);setDataAte(fimS);};
+  const limparPeriodo=()=>{setDataDe("");setDataAte("");};
+  // resumo por categoria (sempre somado) sobre a lista filtrada
+  const resumo=useMemo(()=>{
+    const m={};let totEnt=0,totSai=0;
+    lista.forEach((t)=>{const k=t.category||"Outros";if(!m[k])m[k]={entrada:0,saida:0};m[k][t.type]=(m[k][t.type]||0)+t.amount;if(t.type==="entrada")totEnt+=t.amount;else totSai+=t.amount;});
+    const cats=Object.entries(m).map(([nome,v])=>({nome,...v,total:(v.saida||0)+(v.entrada||0)})).sort((a,b)=>(b.saida+b.entrada)-(a.saida+a.entrada));
+    return{cats,totEnt,totSai,saldo:totEnt-totSai};
+  },[lista]);
+  // baixar planilha (CSV — abre no Excel/Google Sheets)
+  const baixarPlanilha=()=>{
+    const n=(v)=>Number(v).toFixed(2).replace(".",",");
+    const esc=(s)=>`"${String(s??"").replace(/"/g,'""')}"`;
+    const linhas=[["Data","Tipo","Categoria","Descrição","Valor (R$)"]];
+    lista.slice().sort((a,b)=>a.date<b.date?-1:1).forEach((t)=>linhas.push([t.date,t.type==="entrada"?"Entrada":"Saída",t.category,t.desc,n(t.amount)]));
+    linhas.push([]);linhas.push(["RESUMO POR CATEGORIA"]);linhas.push(["Categoria","Entradas","Saídas"]);
+    resumo.cats.forEach((c)=>linhas.push([c.nome,n(c.entrada||0),n(c.saida||0)]));
+    linhas.push([]);linhas.push(["TOTAIS"]);
+    linhas.push(["Total entradas",n(resumo.totEnt)]);linhas.push(["Total saídas",n(resumo.totSai)]);linhas.push(["Saldo",n(resumo.saldo)]);
+    const csv="﻿"+linhas.map((l)=>l.map(esc).join(";")).join("\r\n");
+    const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
+    const url=URL.createObjectURL(blob);const a=document.createElement("a");
+    const periodo=dataDe||dataAte?`${dataDe||"inicio"}_a_${dataAte||"hoje"}`:"completo";
+    a.href=url;a.download=`organize-c-financas_${periodo}.csv`;a.click();URL.revokeObjectURL(url);
+    showToast("Planilha baixada! 📊");
+  };
   const excluirLanc=async(id)=>{if(!window.confirm("Remover este lançamento?"))return;setDeleting(id);const{error}=await supabase.from("lancamentos").delete().eq("id",id);setDeleting(null);if(error)return showToast("Erro ao remover.","error");showToast("Lançamento removido.");onDelete();};
   const fieldSm={background:C.panel2,border:`1px solid ${C.border}`,color:C.text,fontSize:12.5,borderRadius:8,padding:"6px 10px",outline:"none"};
+  const chip=(ativo)=>({fontSize:11.5,cursor:"pointer",background:ativo?C.gold:C.panel2,color:ativo?"#16213a":C.muted,border:`1px solid ${ativo?C.gold:C.border}`,borderRadius:20,padding:"5px 11px",fontWeight:ativo?600:400});
   if(txs.length===0)return<Panel><div style={{fontSize:13,color:C.faint,padding:16}}>Nenhum lançamento ainda. Use o WhatsApp ou a aba "Lançar" para começar.</div></Panel>;
-  return <Panel>
+  const temPeriodo=dataDe||dataAte;
+  return <div className="flex flex-col gap-4">
+  <Panel>
     <div className="flex items-center justify-between mb-3 flex-wrap gap-2"><div style={{fontSize:14,fontWeight:500}}>Todos os lançamentos</div><div style={{fontSize:12,color:C.faint}}>{lista.length} de {txs.length}</div></div>
+    {/* período */}
+    <div className="flex items-center gap-2 mb-3 flex-wrap">
+      <span style={{fontSize:11.5,color:C.faint}}>Período:</span>
+      <button onClick={()=>setMes(0)} style={chip(false)}>Este mês</button>
+      <button onClick={()=>setMes(-1)} style={chip(false)}>Mês passado</button>
+      <input type="date" value={dataDe} onChange={(e)=>setDataDe(e.target.value)} style={{...fieldSm,colorScheme:"dark"}}/>
+      <span style={{fontSize:12,color:C.faint}}>até</span>
+      <input type="date" value={dataAte} onChange={(e)=>setDataAte(e.target.value)} style={{...fieldSm,colorScheme:"dark"}}/>
+      {temPeriodo&&<button onClick={limparPeriodo} style={{...chip(false),border:"none",background:"none",color:C.faint,textDecoration:"underline"}}>limpar</button>}
+      <button onClick={baixarPlanilha} className="flex items-center gap-1.5" style={{marginLeft:"auto",background:C.emer,color:"#06231a",border:"none",borderRadius:8,padding:"7px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+        <DollarSign size={14}/> Baixar planilha
+      </button>
+    </div>
     <div className="flex gap-2 mb-4 flex-wrap">
       <div style={{position:"relative"}}><Search size={13} color={C.faint} style={{position:"absolute",left:9,top:8}}/><input value={busca} onChange={(e)=>setBusca(e.target.value)} placeholder="Buscar..." style={{...fieldSm,paddingLeft:28,width:160}}/></div>
       <select value={filtroTipo} onChange={(e)=>setFiltroTipo(e.target.value)} style={fieldSm}><option value="todos">Todos</option><option value="entrada">Entradas</option><option value="saida">Saídas</option></select>
@@ -408,7 +459,19 @@ function Lista({txs,onDelete,showToast}) {
       </div>;})}
     </div>
     {lista.length===0&&<div style={{textAlign:"center",padding:24,color:C.faint,fontSize:13}}>Nenhum resultado com esses filtros.</div>}
-  </Panel>;
+  </Panel>
+  {/* RESUMO POR CATEGORIA (sempre somado) */}
+  {resumo.cats.length>0&&<Panel>
+    <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+      <div style={{fontSize:14,fontWeight:500}}>Resumo por categoria {temPeriodo?"(período)":"(tudo)"}</div>
+      <div className="flex gap-3" style={{fontSize:12}}><span style={{color:C.emer}}>↑ {brl(resumo.totEnt)}</span><span style={{color:C.coral}}>↓ {brl(resumo.totSai)}</span><span style={{color:resumo.saldo>=0?C.gold:C.coral,fontWeight:600}}>= {brl(resumo.saldo)}</span></div>
+    </div>
+    {resumo.cats.map((c,i)=><div key={c.nome} className="flex items-center justify-between py-2" style={{fontSize:13,borderTop:i?`1px solid ${C.border}`:"none"}}>
+      <div className="flex items-center gap-2"><span style={{width:9,height:9,borderRadius:3,background:colorFor(c.nome),display:"inline-block"}}/>{c.nome}</div>
+      <div className="flex gap-4">{c.entrada>0&&<span style={{color:C.emer}}>+{brl(c.entrada)}</span>}{c.saida>0&&<span style={{color:C.coral}}>-{brl(c.saida)}</span>}</div>
+    </div>)}
+  </Panel>}
+  </div>;
 }
 
 /* ─── NEGÓCIO ─────────────────────────────────────────────────────── */
