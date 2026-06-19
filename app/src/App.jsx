@@ -10,7 +10,7 @@ import {
   Loader2, Trash2, Settings, AlertCircle, CheckCircle2, MessageCircle,
 } from "lucide-react";
 import {
-  supabase, entrar, sair, usuarioAtual, ehAdmin, meuPerfil,
+  supabase, entrar, sair, definirSenha, usuarioAtual, ehAdmin, meuPerfil,
   carregarLancamentos, inserirLancamentos, carregarClientes,
   carregarDespesasFixas, inserirDespesaFixa, excluirDespesaFixa,
   atualizarSaldoInicial, atualizarCliente,
@@ -64,14 +64,65 @@ const Brand=({size=17})=><div className="flex items-baseline gap-2"><span style=
 export default function App() {
   const[screen,setScreen]=useState("loading");
   const[user,setUser]=useState(null);
-  useEffect(()=>{(async()=>{ try{ const u=await usuarioAtual(); if(!u)return setScreen("login"); setUser(u); setScreen((await ehAdmin(u.email))?"admin":"client"); }catch{ setScreen("login"); } })();},[]);
+  useEffect(()=>{
+    // detecta link de recuperação de senha (vem com type=recovery no hash)
+    const hash=window.location.hash||"";
+    const ehRecovery=hash.includes("type=recovery");
+    const{data:sub}=supabase.auth.onAuthStateChange((evento)=>{ if(evento==="PASSWORD_RECOVERY")setScreen("recovery"); });
+    (async()=>{
+      if(ehRecovery){ setScreen("recovery"); return; }
+      try{ const u=await usuarioAtual(); if(!u)return setScreen("login"); setUser(u); setScreen((await ehAdmin(u.email))?"admin":"client"); }catch{ setScreen("login"); }
+    })();
+    return ()=>sub?.subscription?.unsubscribe?.();
+  },[]);
   const aposLogin=async(u)=>{ setUser(u); try{ setScreen((await ehAdmin(u.email))?"admin":"client"); }catch{ setScreen("client"); } };
   const logout=async()=>{ await sair(); setUser(null); setScreen("login"); };
+  const aposNovaSenha=async()=>{ try{ const u=await usuarioAtual(); setUser(u); setScreen((await ehAdmin(u?.email))?"admin":"client"); }catch{ setScreen("login"); } };
   return <div style={{background:C.bg,color:C.text,minHeight:"100vh",fontFamily:sans}}>
     {screen==="loading"&&<Centro><Loader2 size={26} color={C.gold} className="animate-spin"/></Centro>}
     {screen==="login"&&<Login onLogin={aposLogin}/>}
+    {screen==="recovery"&&<NovaSenha onDone={aposNovaSenha}/>}
     {screen==="client"&&<Client user={user} logout={logout}/>}
     {screen==="admin"&&<Admin logout={logout}/>}
+  </div>;
+}
+
+/* ─── DEFINIR NOVA SENHA (link de recuperação) ────────────────────── */
+function NovaSenha({onDone}) {
+  const[pw,setPw]=useState("");const[pw2,setPw2]=useState("");const[erro,setErro]=useState("");const[load,setLoad]=useState(false);
+  const field={background:C.panel2,border:`1px solid ${C.border}`,color:C.text,fontSize:14,borderRadius:12,padding:"13px 13px 13px 42px",width:"100%",outline:"none"};
+  const salvar=async()=>{
+    if(pw.length<6)return setErro("A senha precisa ter ao menos 6 caracteres.");
+    if(pw!==pw2)return setErro("As senhas não conferem.");
+    setErro("");setLoad(true);
+    const{error}=await definirSenha(pw);
+    setLoad(false);
+    if(error)return setErro("Não foi possível salvar. Tente o link novamente.");
+    onDone();
+  };
+  return <div className="flex items-center justify-center px-4" style={{minHeight:"100vh",background:`radial-gradient(680px 460px at 50% -5%, rgba(46,214,160,.10), transparent 60%), ${C.bg}`}}>
+    <div className="w-full" style={{maxWidth:380}}>
+      <div className="flex justify-center mb-7"><Brand size={26}/></div>
+      <div className="rounded-3xl p-7" style={{background:C.panel,border:`1px solid ${C.border2}`}}>
+        <div style={{height:3,background:C.gold,borderRadius:99,width:46,margin:"0 auto 22px"}}/>
+        <h1 style={{fontFamily:serif,fontSize:27,fontWeight:600,textAlign:"center",marginBottom:6}}>Defina sua senha</h1>
+        <p style={{fontSize:13.5,color:C.muted,textAlign:"center",marginBottom:24}}>Crie a senha de acesso ao seu painel</p>
+        <div className="flex flex-col gap-3">
+          <div style={{position:"relative"}}>
+            <Lock size={17} color={C.faint} style={{position:"absolute",left:14,top:14}}/>
+            <input value={pw} onChange={(e)=>setPw(e.target.value)} type="password" placeholder="Nova senha" autoFocus style={field}/>
+          </div>
+          <div style={{position:"relative"}}>
+            <Lock size={17} color={C.faint} style={{position:"absolute",left:14,top:14}}/>
+            <input value={pw2} onChange={(e)=>setPw2(e.target.value)} type="password" placeholder="Repita a senha" onKeyDown={(e)=>e.key==="Enter"&&salvar()} style={field}/>
+          </div>
+          {erro&&<div className="flex items-center gap-2" style={{fontSize:12.5,color:C.coral}}><AlertCircle size={13}/> {erro}</div>}
+          <button onClick={salvar} disabled={load} className="rounded-xl py-3 mt-1 flex items-center justify-center gap-2" style={{background:load?C.goldDeep:C.gold,color:"#16213a",fontSize:14.5,fontWeight:600,cursor:load?"not-allowed":"pointer"}}>
+            {load?<><Loader2 size={17} className="animate-spin"/> Salvando…</>:"Salvar e entrar"}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>;
 }
 

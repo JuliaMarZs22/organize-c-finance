@@ -11,6 +11,10 @@ export async function entrar(email, senha) {
   return { user: data?.user || null, error };
 }
 export async function sair() { await supabase.auth.signOut(); }
+export async function definirSenha(novaSenha) {
+  const { error } = await supabase.auth.updateUser({ password: novaSenha });
+  return { error };
+}
 export async function usuarioAtual() {
   const { data } = await supabase.auth.getUser();
   return data?.user || null;
