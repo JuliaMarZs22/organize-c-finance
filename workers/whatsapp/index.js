@@ -90,7 +90,7 @@ INTENÇÃO:
 - "quitar": a pessoa diz que alguém QUITOU/PAGOU o que devia, sem dar valor (ex.: "a Grasiele quitou", "o João me pagou tudo"). Preencha "pessoa", total 0.
 - "cancelar": a pessoa diz que uma venda/compra foi CANCELADA, ESTORNADA ou que houve PEDIDO DE DINHEIRO DE VOLTA/REEMBOLSO. Preencha "type" (entrada=venda cancelada, saida=compra cancelada), "pessoa" se houver, "total" o valor se mencionado.
 - "editar": a pessoa quer CORRIGIR/ALTERAR o ÚLTIMO lançamento (ex.: "não, era 500 não 50", "corrige pra gasolina", "muda a categoria pra saúde", "na verdade foi ontem", "o nome era Ana"). Preencha o objeto "edit" só com os campos a mudar: {"valor":number, "category":string, "subcategoria":string, "desc":string, "pessoa":string, "data":"YYYY-MM-DD", "type":"entrada"|"saida"}. Inclua APENAS os campos que a pessoa pediu para mudar; omita o resto.
-- "consulta": a pessoa está PERGUNTANDO algo sobre as finanças dela. Nesse caso só "intencao":"consulta" importa.
+- "consulta": a pessoa está PERGUNTANDO/PEDINDO algo sobre as finanças dela (ex.: "quanto vendi essa semana?", "meu resumo da semana", "qual produto vendeu mais?", "quanto investi em tráfego?", "qual meu lucro?", "como tá meu caixa?", "quem tá me devendo?", "minhas cobranças", "como estou?"). Nesse caso só "intencao":"consulta" importa.
 
 Campos para registrar/quitar:
 - "category": bucket amplo. Para VENDAS de serviço/produto use "Vendas". Para SALÁRIO/emprego fixo/renda fixa (quando a pessoa fala "salário", "meu salário", "recebi do trabalho") use "Salário". Para gastos com anúncios/influencer/divulgação use "Marketing". Outras: Alimentação, Moradia, Transporte, Saúde, Assinaturas, Lazer, Pró-labore, Investimento, Equipe, Insumos, Impostos, Outros.
@@ -126,12 +126,22 @@ async function responderConsulta(pergunta, clienteId, env) {
   const rows = await r.json();
   if (!Array.isArray(rows) || !rows.length) return "Ainda não tenho lançamentos seus para analisar. Comece registrando suas entradas e saídas que eu te ajudo a entender o negócio. 💛";
 
-  const hoje = new Date(); const mesAtual = hoje.toISOString().slice(0, 7);
-  const resumo = { mesAtual, totalEntradas: 0, totalSaidas: 0, entradasMes: 0, saidasMes: 0, porSubcategoria: {}, porCategoria: {}, pendentes: [] };
+  // dados do cliente (saldo inicial) + custo fixo, para calcular caixa
+  let saldoInicial = 0, custoFixo = 0;
+  try {
+    const cr = await fetch(`${env.SUPABASE_URL}/rest/v1/clientes?id=eq.${clienteId}&select=saldo_inicial`, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } });
+    saldoInicial = Number((await cr.json())?.[0]?.saldo_inicial || 0);
+    const dr = await fetch(`${env.SUPABASE_URL}/rest/v1/despesas_fixas?cliente_id=eq.${clienteId}&ativa=eq.true&select=valor`, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } });
+    custoFixo = (await dr.json() || []).reduce((s, d) => s + Number(d.valor), 0);
+  } catch (_) {}
+
+  const hoje = new Date(); const hojeI = hoje.toISOString().slice(0, 10); const mesAtual = hojeI.slice(0, 7);
+  const seteDias = new Date(hoje.getTime() - 7 * 86400000).toISOString().slice(0, 10);
+  const resumo = { hoje: hojeI, mesAtual, custoFixo, totalEntradas: 0, totalSaidas: 0, entradasMes: 0, saidasMes: 0, entradasSemana: 0, saidasSemana: 0, caixaAtual: saldoInicial, porSubcategoria: {}, porCategoria: {}, pendentes: [] };
   for (const t of rows) {
-    const v = Number(t.valor); const noMes = (t.data || "").slice(0, 7) === mesAtual;
-    if (t.tipo === "entrada") { resumo.totalEntradas += v; if (noMes) resumo.entradasMes += v; }
-    else { resumo.totalSaidas += v; if (noMes) resumo.saidasMes += v; }
+    const v = Number(t.valor); const noMes = (t.data || "").slice(0, 7) === mesAtual; const naSemana = (t.data || "") >= seteDias && (t.data || "") <= hojeI; const realizado = (t.data || "") <= hojeI;
+    if (t.tipo === "entrada") { resumo.totalEntradas += v; if (noMes) resumo.entradasMes += v; if (naSemana) resumo.entradasSemana += v; if (realizado) resumo.caixaAtual += v; }
+    else { resumo.totalSaidas += v; if (noMes) resumo.saidasMes += v; if (naSemana) resumo.saidasSemana += v; if (realizado) resumo.caixaAtual -= v; }
     const sk = `${t.tipo}:${t.subcategoria || t.categoria || "Outros"}`;
     resumo.porSubcategoria[sk] = (resumo.porSubcategoria[sk] || 0) + v;
     const ck = `${t.tipo}:${t.categoria || "Outros"}`;
@@ -139,8 +149,17 @@ async function responderConsulta(pergunta, clienteId, env) {
     if (Number(t.valor_pendente) > 0) resumo.pendentes.push({ pessoa: t.pessoa, desc: t.descricao, pendente: Number(t.valor_pendente) });
   }
   resumo.lucroTotal = resumo.totalEntradas - resumo.totalSaidas;
+  resumo.lucroMes = resumo.entradasMes - resumo.saidasMes;
+  resumo.lucroSemana = resumo.entradasSemana - resumo.saidasSemana;
+  resumo.totalAReceber = resumo.pendentes.reduce((s, p) => s + p.pendente, 0);
 
-  const ANALISTA = `Você é um assistente financeiro pessoal e consultor de negócios, falando por WhatsApp com um empreendedor brasileiro. Seja DIRETO, caloroso e use no máximo ~6 linhas. Use os DADOS REAIS fornecidos (em reais, R$) para responder a pergunta. Quando fizer sentido, traga 1 insight ou conselho prático (ex.: qual produto investir mais, capacidade de investimento, onde está vazando dinheiro). Formate valores como R$ 1.234,56. Não invente números além dos dados. Use *negrito* do WhatsApp para destacar.`;
+  const ANALISTA = `Você é um assistente financeiro pessoal e consultor de negócios, falando por WhatsApp com um empreendedor brasileiro. Seja DIRETO, caloroso, máx ~7 linhas. Use os DADOS REAIS (R$) para responder.
+Os dados trazem: caixaAtual, custoFixo (mensal), entradas/saídas/lucro do mês (Mes) e da última semana (Semana), totais gerais, pendentes (contas a receber) e totalAReceber, e quebra por produto/serviço (porSubcategoria) e categoria.
+- Se perguntarem do "caixa": informe caixaAtual e, se houver custoFixo, diga por quantos meses/dias o caixa cobre o custo fixo.
+- Se perguntarem da "semana": use entradasSemana/saidasSemana/lucroSemana.
+- Se perguntarem "quem me deve / cobranças": liste os pendentes (pessoa + valor) e o totalAReceber.
+- Se perguntarem o que mais vendeu: use porSubcategoria (entrada).
+Sempre que fizer sentido, dê 1 conselho prático (capacidade de investir, onde cortar, cobrar quem deve). Formate como R$ 1.234,56. Não invente números. Use *negrito* do WhatsApp.`;
   const rr = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.OPENAI_API_KEY}` },
@@ -375,6 +394,12 @@ async function processarMensagem(body, env) {
       }
       if (ehCancelar(texto)) { await pendDel(env, telefone); await enviar(telefone, "Beleza, descartei. 👍", env); return; }
       // se não foi sim/não, cai abaixo e trata como novo lançamento
+    }
+
+    // menu de ajuda (oi, menu, ajuda) — descoberta das funções, sem custo de IA
+    if (/^\s*(oi+|ol[áa]|menu|ajuda|help|come[çc]ar|in[íi]cio|comandos|o que (voc[êe]|tu) faz|como funciona)\s*[!?.]*\s*$/i.test(texto)) {
+      await enviar(telefone, `Oi! 👋 Sou seu assistente do *Organize-C Finance*. Comigo você pode, por áudio ou texto:\n\n📥 *Registrar* — "recebi 300 da Ana pela harmonização" / "gastei 50 de gasolina" / "investi 200 em tráfego"\n📅 *Datas* — "ontem", "dia 5/06", "10/07 vou receber 1000"\n✅ *Quitação* — "a Ana quitou"\n❌ *Cancelar* — "a cliente cancelou e quer o dinheiro de volta"\n✏️ *Corrigir* — "era 500, não 50"\n\nE me *perguntar* quando quiser:\n📊 "meu resumo da semana"\n💰 "como tá meu caixa?"\n🔔 "quem tá me devendo?"\n🏆 "qual produto vendeu mais?"\n📈 "qual meu lucro esse mês?"\n\nÉ só mandar! 💛`, env);
+      return;
     }
 
     console.log("Texto interpretado:", texto);
