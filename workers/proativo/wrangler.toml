@@ -1,0 +1,13 @@
+name = "organize-c-proativo"
+main = "index.js"
+compatibility_date = "2024-01-01"
+
+[triggers]
+crons = ["0 12 * * 1", "0 12 1 * *"]
+
+[vars]
+GRAPH_VERSION = "v21.0"
+PAINEL_URL    = "https://organize-c-finance.pages.dev"
+
+# Secrets (wrangler secret put):
+# WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID, SUPABASE_URL, SUPABASE_SERVICE_KEY
