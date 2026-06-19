@@ -5,50 +5,63 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Bem-vindo(a) ao Organize-C Finance</title>
 <link rel="icon" href="/logo.png">
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#070b14; --panel:#0e1525; --panel2:#121a2e; --border:#1c2438; --border2:#27314c;
-    --gold:#e9cd88; --goldDeep:#c0a366; --emer:#2ed6a0; --text:#eef1f6; --muted:#9aa3bb; --faint:#7e87a0;
-    --serif:'Cormorant Garamond',Georgia,serif; --sans:'DM Sans',system-ui,sans-serif;
+    --bg:#070b14; --bg2:#0b1120; --panel:#0e1525; --panel2:#121a2e;
+    --border:#1c2438; --border2:#27314c;
+    --gold:#e9cd88; --gold-deep:#c0a366;
+    --emer:#2ed6a0; --emer-deep:#1d8a6f; --emer-dim:#14564a;
+    --text:#eef1f6; --muted:#9aa3bb; --faint:#7e87a0;
+    --serif:'Cormorant Garamond',Georgia,serif;
+    --sans:'DM Sans',system-ui,-apple-system,sans-serif;
   }
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{background:radial-gradient(680px 460px at 50% -5%, rgba(46,214,160,.12), transparent 60%), var(--bg);
-       color:var(--text);font-family:var(--sans);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
-  .card{width:100%;max-width:520px;background:var(--panel);border:1px solid var(--border2);border-radius:24px;padding:40px 32px;text-align:center}
-  .bar{height:3px;background:var(--gold);border-radius:99px;width:46px;margin:0 auto 22px}
-  .logo{width:88px;height:88px;border-radius:22px;margin:0 auto 18px;display:block;box-shadow:0 8px 30px rgba(46,214,160,.18)}
-  .brand{display:flex;align-items:baseline;gap:8px;justify-content:center;margin-bottom:18px}
-  .brand .a{font-size:15px;font-weight:500;color:#c2c9da}
-  .brand .b{font-family:var(--serif);font-size:24px;color:var(--gold);line-height:1}
-  h1{font-family:var(--serif);font-size:30px;font-weight:600;margin-bottom:6px}
-  .sub{font-size:14.5px;color:var(--muted);margin-bottom:28px;line-height:1.5}
-  .step{background:var(--panel2);border:1px solid var(--border);border-radius:16px;padding:20px;text-align:left;margin-bottom:14px;display:flex;gap:14px}
-  .num{flex-shrink:0;width:30px;height:30px;border-radius:50%;background:var(--gold);color:#16213a;font-weight:700;font-size:15px;display:flex;align-items:center;justify-content:center}
-  .step h3{font-size:15px;font-weight:600;margin-bottom:4px}
-  .step p{font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:12px}
-  .btn{display:inline-flex;align-items:center;gap:8px;text-decoration:none;border-radius:12px;padding:11px 18px;font-size:14px;font-weight:600;cursor:pointer}
-  .btn-gold{background:var(--gold);color:#16213a}
-  .btn-wa{background:var(--emer);color:#06231a}
-  .num-zap{font-family:var(--sans);font-size:13px;color:var(--faint);margin-top:8px}
-  .foot{font-size:12px;color:var(--faint);margin-top:22px;line-height:1.6}
-  .foot b{color:var(--gold)}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.6;-webkit-font-smoothing:antialiased;min-height:100vh}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:680px;margin:0 auto;padding:28px 24px 60px}
+  .top{display:flex;align-items:center;gap:11px;margin-bottom:48px}
+  .top img{width:40px;height:40px;border-radius:11px}
+  .top b{font-family:var(--sans);font-weight:500;font-size:16px;color:#c2c9da}
+  .top .f{font-family:var(--serif);font-size:23px;color:var(--emer)}
+  .eyebrow{font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--emer);font-weight:600;margin-bottom:18px}
+  h1{font-family:var(--sans);font-weight:700;font-size:clamp(34px,6vw,52px);line-height:1.05;letter-spacing:-.02em;margin-bottom:18px}
+  h1 .g{color:var(--emer)}
+  .lead{font-size:clamp(15px,2.2vw,18px);color:var(--muted);max-width:560px;margin-bottom:40px}
+  .step{background:var(--panel);border:1px solid var(--border2);border-radius:20px;padding:26px;margin-bottom:16px;display:flex;gap:18px}
+  .num{flex-shrink:0;width:38px;height:38px;border-radius:50%;background:var(--emer-dim);color:var(--emer);font-family:var(--serif);font-weight:600;font-size:22px;display:flex;align-items:center;justify-content:center}
+  .step h3{font-family:var(--sans);font-weight:600;font-size:18px;margin-bottom:6px}
+  .step p{font-size:14px;color:var(--muted);line-height:1.6;margin-bottom:16px}
+  .step p b{color:var(--text);font-weight:600}
+  .step p em{color:var(--emer);font-style:italic}
+  .btn{display:inline-flex;align-items:center;gap:9px;font-family:var(--sans);font-size:15px;font-weight:600;padding:13px 24px;border-radius:40px;cursor:pointer;border:1px solid transparent;transition:transform .25s ease,background .25s ease}
+  .btn-emer{background:var(--emer);color:#06231a}
+  .btn-emer:hover{transform:translateY(-2px);background:#3ee3ad}
+  .btn-ghost{background:transparent;border-color:var(--border2);color:var(--text)}
+  .btn-ghost:hover{border-color:var(--emer-deep);transform:translateY(-2px)}
+  .zap{font-size:13px;color:var(--faint);margin-top:10px;letter-spacing:.02em}
+  .foot{font-size:13px;color:var(--faint);margin-top:30px;line-height:1.7;text-align:center}
+  .foot b{color:var(--emer)}
 </style>
 </head>
 <body>
-  <div class="card">
-    <img src="/logo.png" alt="Organize-C Finance" class="logo">
-    <div class="brand"><span class="a">organize-c</span><span class="b">finance</span></div>
-    <div class="bar"></div>
-    <h1>Compra confirmada! 🎉</h1>
-    <p class="sub">Bem-vindo(a)! Sua conta já está criada. Siga os 2 passos abaixo para começar a organizar suas finanças.</p>
+  <div class="wrap">
+    <div class="top">
+      <img src="/logo.png" alt="">
+      <b>organize-c</b><span class="f">finance</span>
+    </div>
+
+    <div class="eyebrow">✓ Compra confirmada</div>
+    <h1>Bem-vindo(a) ao seu novo <span class="g">controle financeiro</span>.</h1>
+    <p class="lead">Sua conta já está criada. Siga os 2 passos abaixo e comece a organizar suas finanças por áudio, direto no WhatsApp.</p>
 
     <div class="step">
       <div class="num">1</div>
       <div>
         <h3>Acesse seu painel</h3>
-        <p>Clique abaixo, toque em <b style="color:var(--text)">"Esqueci minha senha"</b>, informe o e-mail da sua compra e defina sua senha.</p>
-        <a class="btn btn-gold" href="https://organize-c-finance.pages.dev" target="_blank" rel="noopener">Acessar painel →</a>
+        <p>Clique abaixo, toque em <b>"Esqueci minha senha"</b>, informe o e-mail da sua compra e defina sua senha de acesso.</p>
+        <a class="btn btn-ghost" href="https://organize-c-finance.pages.dev" target="_blank" rel="noopener">Acessar meu painel →</a>
       </div>
     </div>
 
@@ -56,13 +69,16 @@
       <div class="num">2</div>
       <div>
         <h3>Ative seu assistente no WhatsApp</h3>
-        <p>Salve nosso número e mande um <b style="color:var(--text)">"oi"</b>. Depois é só mandar áudio ou texto, tipo <em>"gastei 50 no mercado"</em>, que eu registro tudo automaticamente. 💛</p>
-        <a class="btn btn-wa" href="https://wa.me/5571992868026?text=Oi!%20Acabei%20de%20assinar%20o%20Organize-C%20Finance" target="_blank" rel="noopener">Abrir WhatsApp →</a>
-        <div class="num-zap">+55 71 99286-8026</div>
+        <p>Salve nosso número e mande um <b>"oi"</b>. Depois é só mandar áudio ou texto — tipo <em>"vendi 10 mil em 5x"</em> ou <em>"gastei 30 no almoço"</em> — que eu registro tudo automaticamente.</p>
+        <a class="btn btn-emer" href="https://wa.me/5571992868026?text=Oi!%20Acabei%20de%20assinar%20o%20Organize-C%20Finance" target="_blank" rel="noopener">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="#06231a"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38c1.45.79 3.08 1.21 4.79 1.21 5.46 0 9.91-4.45 9.91-9.91C21.95 6.45 17.5 2 12.04 2zm5.8 14.01c-.24.68-1.42 1.31-1.96 1.36-.5.05-1.14.07-1.84-.12-.42-.13-.97-.31-1.66-.61-2.92-1.26-4.83-4.2-4.98-4.4-.15-.2-1.18-1.57-1.18-2.99s.75-2.12 1.01-2.41c.26-.29.57-.36.76-.36.19 0 .38 0 .55.01.18.01.41-.07.65.5.24.57.81 1.97.88 2.11.07.14.12.31.02.5-.1.2-.15.31-.29.48-.15.17-.31.39-.44.52-.15.15-.3.3-.13.59.17.29.76 1.25 1.63 2.03 1.12 1 2.07 1.31 2.36 1.46.29.15.46.12.63-.07.17-.2.73-.85.93-1.14.19-.29.39-.24.65-.15.27.1 1.71.81 2 .96.29.15.49.22.56.34.07.12.07.7-.17 1.38z"/></svg>
+          Abrir WhatsApp
+        </a>
+        <div class="zap">+55 71 99286-8026</div>
       </div>
     </div>
 
-    <p class="foot">Qualquer dúvida, é só chamar no WhatsApp acima.<br>
+    <p class="foot">Qualquer dúvida, é só chamar no WhatsApp acima. 💚<br>
     <b>Organize-C Finance</b> — suas finanças, simples e no controle.</p>
   </div>
 </body>
