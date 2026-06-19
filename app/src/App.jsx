@@ -275,7 +275,7 @@ function Client({user,logout}) {
 
   if(load)return<Centro><Loader2 size={26} color={C.gold} className="animate-spin"/></Centro>;
 
-  const TABS=[["visao","Visão geral",LayoutGrid],["lancar","Lançar",Plus],["negocio","Negócio",Briefcase],["clientes","Clientes",Users],["lancamentos","Lançamentos",ListOrdered],["fixas","Despesas fixas",Settings]];
+  const TABS=[["visao","Visão geral",LayoutGrid],["lancar","Lançar",Plus],["negocio","Negócio",Briefcase],["clientes","Clientes",Users],["lancamentos","Lançamentos",ListOrdered],["relatorio","Relatório",DollarSign],["fixas","Despesas fixas",Settings]];
 
   return <div className="mx-auto px-4 py-5" style={{maxWidth:1060}}>
     {toastNode}
@@ -287,6 +287,7 @@ function Client({user,logout}) {
     {tab==="lancar"&&<Lancar user={user} onAdd={recarregar} showToast={showToast}/>}
     {tab==="negocio"&&<Negocio calc={calc} meta={meta} mes={mesAtual} onMeta={recarregar} showToast={showToast} perfil={perfil}/>}
     {tab==="clientes"&&<Clientes txs={txs}/>}
+    {tab==="relatorio"&&<Relatorio txs={txs} perfil={perfil} showToast={showToast}/>}
     {tab==="lancamentos"&&<Lista txs={txs} onDelete={recarregar} showToast={showToast}/>}
     {tab==="fixas"&&<DespesasFixas despesas={despesas} onUpdate={recarregar} showToast={showToast}/>}
   </div>;
@@ -389,6 +390,53 @@ function Lancar({user,onAdd,showToast}) {
         <button onClick={salvar} disabled={load} className="rounded-lg py-2.5 mt-1 flex items-center justify-center gap-2" style={{background:load?C.goldDeep:C.gold,color:"#16213a",fontSize:13.5,fontWeight:600,cursor:load?"not-allowed":"pointer"}}>{load?<><Loader2 size={16} className="animate-spin"/> Salvando…</>:"Adicionar lançamento"}</button>
       </div>
     </Panel>
+  </div>;
+}
+
+/* ─── RELATÓRIO MENSAL (imagem compartilhável) ────────────────────── */
+function Relatorio({txs,perfil,showToast}) {
+  const ref=React.useRef(null);const[baixando,setBaixando]=useState(false);
+  const meses=useMemo(()=>{const s=new Set(txs.filter((t)=>!t.cancelado).map((t)=>t.date.slice(0,7)));s.add(mk(today()));return[...s].sort().reverse();},[txs]);
+  const[mes,setMes]=useState(mk(today()));
+  const d=useMemo(()=>{
+    const lin=txs.filter((t)=>!t.cancelado&&t.date.slice(0,7)===mes);
+    let ent=0,sai=0;const vend={},gasto={};
+    lin.forEach((t)=>{if(t.type==="entrada"){ent+=t.amount;const k=t.sub||t.category;vend[k]=(vend[k]||0)+t.amount;}else{sai+=t.amount;const k=t.sub||t.category;gasto[k]=(gasto[k]||0)+t.amount;}});
+    const top=(o)=>Object.entries(o).sort((a,b)=>b[1]-a[1])[0];
+    const[y,m]=mes.split("-");const nomeMes=new Date(y,m-1,1).toLocaleDateString("pt-BR",{month:"long",year:"numeric"});
+    return{ent,sai,lucro:ent-sai,topVenda:top(vend),topGasto:top(gasto),nomeMes,n:lin.length};
+  },[txs,mes]);
+  const baixar=async()=>{
+    setBaixando(true);
+    try{
+      const html2canvas=(await import("html2canvas")).default;
+      const canvas=await html2canvas(ref.current,{scale:3,backgroundColor:null,useCORS:true});
+      const a=document.createElement("a");a.href=canvas.toDataURL("image/png");a.download=`organize-c_relatorio_${mes}.png`;a.click();
+      showToast("Imagem baixada! 📸");
+    }catch(e){console.error(e);showToast("Erro ao gerar imagem","error");}
+    setBaixando(false);
+  };
+  const cap=(s)=>s.charAt(0).toUpperCase()+s.slice(1);
+  return <div className="flex flex-col items-center gap-4">
+    <div className="flex items-center gap-2 self-stretch justify-between flex-wrap">
+      <select value={mes} onChange={(e)=>setMes(e.target.value)} style={{background:C.panel2,border:`1px solid ${C.border}`,color:C.text,fontSize:13,borderRadius:8,padding:"8px 12px",outline:"none"}}>{meses.map((m)=>{const[y,mm]=m.split("-");return<option key={m} value={m}>{cap(new Date(y,mm-1,1).toLocaleDateString("pt-BR",{month:"long",year:"numeric"}))}</option>;})}</select>
+      <button onClick={baixar} disabled={baixando} className="flex items-center gap-2" style={{background:C.emer,color:"#06231a",border:"none",borderRadius:10,padding:"10px 18px",fontSize:14,fontWeight:600,cursor:"pointer"}}>{baixando?<Loader2 size={16} className="animate-spin"/>:<DollarSign size={16}/>} Baixar imagem</button>
+    </div>
+    {/* CARD que vira imagem */}
+    <div ref={ref} style={{width:380,background:`linear-gradient(160deg, #0c1322, ${C.bg})`,border:`1px solid ${C.border2}`,borderRadius:24,padding:"32px 28px",fontFamily:sans}}>
+      <div className="flex items-center gap-2 mb-1" style={{justifyContent:"center"}}><img src="/logo.png" alt="" style={{width:30,height:30,borderRadius:8}}/><span style={{fontSize:15,fontWeight:500,color:"#c2c9da"}}>organize-c</span><span style={{fontFamily:serif,fontSize:21,color:C.emer}}>finance</span></div>
+      <div style={{textAlign:"center",fontSize:12,letterSpacing:".18em",textTransform:"uppercase",color:C.gold,marginBottom:24,marginTop:8}}>{cap(d.nomeMes)}</div>
+      <div style={{textAlign:"center",marginBottom:6}}><div style={{fontSize:12,color:C.muted}}>Lucro do mês</div><div style={{fontFamily:serif,fontSize:46,fontWeight:600,color:d.lucro>=0?C.emer:C.coral,lineHeight:1.1}}>{brl(d.lucro)}</div></div>
+      <div className="grid" style={{gridTemplateColumns:"1fr 1fr",gap:12,margin:"22px 0"}}>
+        <div style={{background:C.panel2,borderRadius:14,padding:"14px"}}><div style={{fontSize:11.5,color:C.faint}}>Entrou</div><div style={{fontFamily:serif,fontSize:22,fontWeight:600,color:C.emer}}>{brl0(d.ent)}</div></div>
+        <div style={{background:C.panel2,borderRadius:14,padding:"14px"}}><div style={{fontSize:11.5,color:C.faint}}>Saiu</div><div style={{fontFamily:serif,fontSize:22,fontWeight:600,color:C.coral}}>{brl0(d.sai)}</div></div>
+      </div>
+      {d.topVenda&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"8px 0",borderTop:`1px solid ${C.border}`}}><span style={{color:C.muted}}>🏆 Mais vendeu</span><span style={{fontWeight:600}}>{d.topVenda[0]}</span></div>}
+      {d.topGasto&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"8px 0",borderTop:`1px solid ${C.border}`}}><span style={{color:C.muted}}>💸 Maior gasto</span><span style={{fontWeight:600}}>{d.topGasto[0]}</span></div>}
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"8px 0",borderTop:`1px solid ${C.border}`}}><span style={{color:C.muted}}>📌 Lançamentos</span><span style={{fontWeight:600}}>{d.n}</span></div>
+      <div style={{textAlign:"center",fontSize:11,color:C.faint,marginTop:18}}>Organize suas finanças pelo WhatsApp 💛<br/>organize-c.finance</div>
+    </div>
+    <p style={{fontSize:12.5,color:C.faint,textAlign:"center",maxWidth:380}}>Baixe e compartilhe seu fechamento do mês. 📲 Escolha o mês acima.</p>
   </div>;
 }
 
