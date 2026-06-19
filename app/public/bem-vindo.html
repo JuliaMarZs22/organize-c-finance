@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bem-vindo(a) ao Organize-C Finance</title>
+<link rel="icon" href="/logo.png">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#070b14; --panel:#0e1525; --panel2:#121a2e; --border:#1c2438; --border2:#27314c;
+    --gold:#e9cd88; --goldDeep:#c0a366; --emer:#2ed6a0; --text:#eef1f6; --muted:#9aa3bb; --faint:#7e87a0;
+    --serif:'Cormorant Garamond',Georgia,serif; --sans:'DM Sans',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:radial-gradient(680px 460px at 50% -5%, rgba(46,214,160,.12), transparent 60%), var(--bg);
+       color:var(--text);font-family:var(--sans);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+  .card{width:100%;max-width:520px;background:var(--panel);border:1px solid var(--border2);border-radius:24px;padding:40px 32px;text-align:center}
+  .bar{height:3px;background:var(--gold);border-radius:99px;width:46px;margin:0 auto 22px}
+  .logo{width:88px;height:88px;border-radius:22px;margin:0 auto 18px;display:block;box-shadow:0 8px 30px rgba(46,214,160,.18)}
+  .brand{display:flex;align-items:baseline;gap:8px;justify-content:center;margin-bottom:18px}
+  .brand .a{font-size:15px;font-weight:500;color:#c2c9da}
+  .brand .b{font-family:var(--serif);font-size:24px;color:var(--gold);line-height:1}
+  h1{font-family:var(--serif);font-size:30px;font-weight:600;margin-bottom:6px}
+  .sub{font-size:14.5px;color:var(--muted);margin-bottom:28px;line-height:1.5}
+  .step{background:var(--panel2);border:1px solid var(--border);border-radius:16px;padding:20px;text-align:left;margin-bottom:14px;display:flex;gap:14px}
+  .num{flex-shrink:0;width:30px;height:30px;border-radius:50%;background:var(--gold);color:#16213a;font-weight:700;font-size:15px;display:flex;align-items:center;justify-content:center}
+  .step h3{font-size:15px;font-weight:600;margin-bottom:4px}
+  .step p{font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:12px}
+  .btn{display:inline-flex;align-items:center;gap:8px;text-decoration:none;border-radius:12px;padding:11px 18px;font-size:14px;font-weight:600;cursor:pointer}
+  .btn-gold{background:var(--gold);color:#16213a}
+  .btn-wa{background:var(--emer);color:#06231a}
+  .num-zap{font-family:var(--sans);font-size:13px;color:var(--faint);margin-top:8px}
+  .foot{font-size:12px;color:var(--faint);margin-top:22px;line-height:1.6}
+  .foot b{color:var(--gold)}
+</style>
+</head>
+<body>
+  <div class="card">
+    <img src="/logo.png" alt="Organize-C Finance" class="logo">
+    <div class="brand"><span class="a">organize-c</span><span class="b">finance</span></div>
+    <div class="bar"></div>
+    <h1>Compra confirmada! 🎉</h1>
+    <p class="sub">Bem-vindo(a)! Sua conta já está criada. Siga os 2 passos abaixo para começar a organizar suas finanças.</p>
+
+    <div class="step">
+      <div class="num">1</div>
+      <div>
+        <h3>Acesse seu painel</h3>
+        <p>Clique abaixo, toque em <b style="color:var(--text)">"Esqueci minha senha"</b>, informe o e-mail da sua compra e defina sua senha.</p>
+        <a class="btn btn-gold" href="https://organize-c-finance.pages.dev" target="_blank" rel="noopener">Acessar painel →</a>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="num">2</div>
+      <div>
+        <h3>Ative seu assistente no WhatsApp</h3>
+        <p>Salve nosso número e mande um <b style="color:var(--text)">"oi"</b>. Depois é só mandar áudio ou texto, tipo <em>"gastei 50 no mercado"</em>, que eu registro tudo automaticamente. 💛</p>
+        <a class="btn btn-wa" href="https://wa.me/5571992868026?text=Oi!%20Acabei%20de%20assinar%20o%20Organize-C%20Finance" target="_blank" rel="noopener">Abrir WhatsApp →</a>
+        <div class="num-zap">+55 71 99286-8026</div>
+      </div>
+    </div>
+
+    <p class="foot">Qualquer dúvida, é só chamar no WhatsApp acima.<br>
+    <b>Organize-C Finance</b> — suas finanças, simples e no controle.</p>
+  </div>
+</body>
+</html>
