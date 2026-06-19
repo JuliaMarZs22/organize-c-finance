@@ -294,10 +294,9 @@ export default {
         headers: { Authorization: `Bearer ${env.WHATSAPP_TOKEN}` },
       });
       const j = await r.json();
-      const t = (j.data || []).find((x) => x.name === "bem_vindo");
-      return new Response(JSON.stringify({ bem_vindo: t?.status || "NAO_ENCONTRADO" }), {
-        headers: { "Content-Type": "application/json" },
-      });
+      const out = {};
+      for (const x of (j.data || [])) out[x.name] = x.status;
+      return new Response(JSON.stringify(out), { headers: { "Content-Type": "application/json" } });
     }
 
     // ── GET /webhook — handshake da Meta ──
