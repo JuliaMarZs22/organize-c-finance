@@ -80,14 +80,15 @@ async function transcrever(audioBuf, env) {
 async function interpretar(frase, env) {
   const SYSTEM = `Você é um parser financeiro de um app brasileiro de gestão financeira.
 Extraia a transação da frase e responda APENAS com JSON, sem markdown.
-Formato: {"type":"entrada"|"saida","total":number,"installments":number,"category":string,"desc":string,"pessoa":string,"pendente":number}.
+Formato: {"type":"entrada"|"saida","total":number,"installments":number,"category":string,"desc":string,"pessoa":string,"pendente":number,"quitar":boolean}.
 Categorias: Alimentação, Moradia, Transporte, Assinaturas, Lazer, Saúde, Pró-labore, Investimento, Vendas, Outros.
 Regras dos campos:
 - "desc": descrição clara do que foi (ex.: "Harmonização facial"). Preserve o serviço/produto citado.
 - "pessoa": nome da pessoa envolvida (quem pagou ou para quem foi pago), se mencionado. Senão "".
 - "pendente": valor que AINDA falta receber/pagar dessa mesma transação, se mencionado (ex.: "ainda resta 1000" => 1000). Senão 0.
 - "total": valor efetivamente movimentado AGORA (o que entrou/saiu), não o pendente.
-Se não houver valor claro, total = 0.`;
+- "quitar": true APENAS quando a frase diz que alguém QUITOU/PAGOU O QUE DEVIA/ACERTOU A DÍVIDA sem necessariamente dar o valor (ex.: "a Grasiele quitou", "o João me pagou tudo", "fulano acertou a conta"). Nesse caso preencha "pessoa" e deixe "total":0. Caso contrário "quitar":false.
+Se não houver valor claro e não for quitação, total = 0.`;
 
   const r = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -102,7 +103,27 @@ Se não houver valor claro, total = 0.`;
   const j = JSON.parse(data.choices[0].message.content);
   const total = Number(j.total) || 0;
   const installments = Math.max(1, Number(j.installments) || 1);
-  return { valid: total > 0, type: j.type === "entrada" ? "entrada" : "saida", total, installments, valorParcela: total / installments, category: j.category || "Outros", desc: j.desc || frase.trim(), pessoa: (j.pessoa || "").trim() || null, pendente: Number(j.pendente) > 0 ? Number(j.pendente) : null };
+  return { valid: total > 0, type: j.type === "entrada" ? "entrada" : "saida", total, installments, valorParcela: total / installments, category: j.category || "Outros", desc: j.desc || frase.trim(), pessoa: (j.pessoa || "").trim() || null, pendente: Number(j.pendente) > 0 ? Number(j.pendente) : null, quitar: j.quitar === true };
+}
+
+// busca pendências em aberto de uma pessoa (valor_pendente > 0)
+async function buscarPendencias(pessoa, clienteId, env) {
+  const q = encodeURIComponent(`*${pessoa}*`);
+  const r = await fetch(`${env.SUPABASE_URL}/rest/v1/lancamentos?cliente_id=eq.${clienteId}&pessoa=ilike.${q}&valor_pendente=gt.0&select=id,descricao,categoria,valor_pendente,pessoa`, {
+    headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+  });
+  const rows = await r.json();
+  return Array.isArray(rows) ? rows : [];
+}
+
+// zera o valor_pendente dos lançamentos quitados
+async function zerarPendencias(ids, env) {
+  const inList = ids.join(",");
+  await fetch(`${env.SUPABASE_URL}/rest/v1/lancamentos?id=in.(${inList})`, {
+    method: "PATCH",
+    headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify({ valor_pendente: 0 }),
+  });
 }
 
 function montarLancamentos(p, clienteId) {
@@ -234,10 +255,21 @@ async function processarMensagem(body, env) {
     else if (msg.type === "audio") texto = await transcrever(await baixarAudio(msg.audio.id, env), env);
     if (!texto) { await enviar(telefone, "Me manda um áudio ou texto dizendo o que entrou ou saiu 🙂", env); return; }
 
+    const fmtBRL = (n) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
     // fluxo de confirmação (estado no KV)
     const pendente = await pendGet(env, telefone);
     if (pendente) {
       if (ehConfirmar(texto)) {
+        if (pendente.tipo === "liquidacao") {
+          // registra a entrada da quitação e zera as pendências
+          const linha = [{ cliente_id: cliente.id, tipo: "entrada", valor: Number(pendente.total.toFixed(2)), categoria: pendente.category || "Vendas", descricao: `Quitação — ${pendente.pessoa}`, data: new Date().toISOString().slice(0, 10), fixa: false, pessoa: pendente.pessoa, origem: "whatsapp" }];
+          const ok = await gravarLancamentos(linha, env);
+          if (ok) await zerarPendencias(pendente.ids, env);
+          await pendDel(env, telefone);
+          await enviar(telefone, ok ? `Quitação registrada! ✅ Entrada de ${fmtBRL(pendente.total)} de ${pendente.pessoa}. Conta zerada.` : "Ops, não consegui salvar. Tenta de novo?", env);
+          return;
+        }
         const linhas = montarLancamentos(pendente, cliente.id);
         const ok = await gravarLancamentos(linhas, env);
         await pendDel(env, telefone);
@@ -251,8 +283,20 @@ async function processarMensagem(body, env) {
     console.log("Texto interpretado:", texto);
     const p = await interpretar(texto, env);
     console.log("Resultado IA:", JSON.stringify(p));
+
+    // ─── quitação de pendência: "a Grasiele quitou" ───
+    if (p.quitar && p.pessoa) {
+      const pend = await buscarPendencias(p.pessoa, cliente.id, env);
+      if (!pend.length) { await enviar(telefone, `Não achei nenhuma pendência em aberto de *${p.pessoa}*. Se quiser, me diga o valor que entrou.`, env); return; }
+      const total = pend.reduce((s, r) => s + Number(r.valor_pendente), 0);
+      const ids = pend.map((r) => r.id);
+      await pendSet(env, telefone, { tipo: "liquidacao", pessoa: p.pessoa, total, ids, category: pend[0].categoria || "Vendas" });
+      await enviar(telefone, `*${p.pessoa}* tinha ${fmtBRL(total)} em aberto. Registrar como entrada agora e zerar a conta? 👍`, env);
+      return;
+    }
+
     if (!p.valid) { await enviar(telefone, "Não peguei o valor. Tenta: \"gastei 30 reais com almoço\" 😉", env); return; }
-    await pendSet(env, telefone, p);
+    await pendSet(env, telefone, { ...p, tipo: "lancamento" });
     await enviar(telefone, textoConfirmacao(p), env);
   } catch (e) {
     console.error("erro no webhook:", e && e.stack ? e.stack : String(e));
