@@ -14,6 +14,7 @@ import {
   carregarLancamentos, inserirLancamentos, carregarClientes,
   carregarDespesasFixas, inserirDespesaFixa, excluirDespesaFixa,
   atualizarSaldoInicial, atualizarCliente, editarLancamento,
+  carregarMeta, salvarMeta,
 } from "./supabase";
 import { sincronizarManual } from "./drive";
 
@@ -229,13 +230,15 @@ function Client({user,logout}) {
   const[txs,setTxs]=useState([]);
   const[perfil,setPerfil]=useState(null);
   const[despesas,setDespesas]=useState([]);
+  const[meta,setMeta]=useState({meta_faturamento:0,meta_lucro:0});
   const[load,setLoad]=useState(true);
   const[showToast,toastNode]=useToast();
+  const mesAtual=mk(today());
 
   const recarregar=useCallback(async()=>{
     try{
-      const[{txs:t},p,{despesas:d}]=await Promise.all([carregarLancamentos(),meuPerfil(),carregarDespesasFixas()]);
-      setTxs(t);setPerfil(p);setDespesas(d);
+      const[{txs:t},p,{despesas:d},m]=await Promise.all([carregarLancamentos(),meuPerfil(),carregarDespesasFixas(),carregarMeta(mk(today()))]);
+      setTxs(t);setPerfil(p);setDespesas(d);setMeta(m);
     }catch(e){console.error(e);}
     finally{setLoad(false);}
   },[]);
@@ -282,7 +285,7 @@ function Client({user,logout}) {
     </div>
     {tab==="visao"&&<Visao calc={calc} perfil={perfil} despesas={despesas} showToast={showToast} onUpdate={recarregar}/>}
     {tab==="lancar"&&<Lancar user={user} onAdd={recarregar} showToast={showToast}/>}
-    {tab==="negocio"&&<Negocio calc={calc}/>}
+    {tab==="negocio"&&<Negocio calc={calc} meta={meta} mes={mesAtual} onMeta={recarregar} showToast={showToast}/>}
     {tab==="lancamentos"&&<Lista txs={txs} onDelete={recarregar} showToast={showToast}/>}
     {tab==="fixas"&&<DespesasFixas despesas={despesas} onUpdate={recarregar} showToast={showToast}/>}
   </div>;
@@ -517,9 +520,39 @@ function EditarLancamento({tx,onClose,onSaved,showToast}) {
   </div>;
 }
 
+/* ─── METAS ───────────────────────────────────────────────────────── */
+function Metas({calc,meta,mes,onMeta,showToast}) {
+  const[edit,setEdit]=useState(false);const[fat,setFat]=useState("");const[luc,setLuc]=useState("");const[load,setLoad]=useState(false);
+  const metaFat=Number(meta?.meta_faturamento||0);const metaLuc=Number(meta?.meta_lucro||0);
+  const temMeta=metaFat>0||metaLuc>0;
+  const field={background:C.panel2,border:`1px solid ${C.border}`,color:C.text,fontSize:13,borderRadius:8,padding:"9px 11px",width:"100%",outline:"none"};
+  const abrir=()=>{setFat(metaFat?String(metaFat).replace(".",","):"");setLuc(metaLuc?String(metaLuc).replace(".",","):"");setEdit(true);};
+  const salvar=async()=>{const f=parseBRL(fat)||0;const l=parseBRL(luc)||0;setLoad(true);const{error}=await salvarMeta(mes,f,l);setLoad(false);if(error)return showToast("Erro ao salvar meta","error");setEdit(false);showToast("Meta salva! 🎯");onMeta();};
+  const Barra=({label,atual,meta,cor})=>{const pct=meta>0?Math.min(100,atual/meta*100):0;const falta=Math.max(0,meta-atual);const bateu=atual>=meta&&meta>0;return<div className="mb-3">
+    <div className="flex items-center justify-between mb-1.5" style={{fontSize:13}}><span style={{color:C.muted}}>{label}</span><span style={{fontWeight:600,color:cor}}>{brl(atual)} <span style={{color:C.faint,fontWeight:400}}>/ {brl(meta)}</span></span></div>
+    <div style={{height:9,background:C.panel2,borderRadius:99,overflow:"hidden"}}><div style={{width:`${pct}%`,height:"100%",background:cor,borderRadius:99,transition:"width .4s"}}/></div>
+    <div style={{fontSize:11.5,color:bateu?C.emer:C.faint,marginTop:4}}>{bateu?`🎉 Meta batida! +${brl(atual-meta)} acima`:`${pct.toFixed(0)}% — faltam ${brl(falta)}`}</div>
+  </div>;};
+  return <Panel>
+    <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center gap-2" style={{fontSize:14,fontWeight:500}}><Target size={16} color={C.gold}/> Metas de {monthLabel(mes)}</div>
+      <button onClick={abrir} style={{background:"none",border:`1px solid ${C.border}`,color:C.muted,borderRadius:8,padding:"5px 11px",fontSize:12,cursor:"pointer"}}>{temMeta?"Editar metas":"Definir metas"}</button>
+    </div>
+    {edit?<div className="flex flex-col gap-2">
+      <div><div style={{fontSize:11.5,color:C.faint,marginBottom:4}}>Meta de faturamento (entradas)</div><input value={fat} onChange={(e)=>setFat(e.target.value)} placeholder="Ex: 20000" inputMode="decimal" style={field}/></div>
+      <div><div style={{fontSize:11.5,color:C.faint,marginBottom:4}}>Meta de lucro</div><input value={luc} onChange={(e)=>setLuc(e.target.value)} placeholder="Ex: 12000" inputMode="decimal" style={field}/></div>
+      <div className="flex gap-2 mt-1"><button onClick={salvar} disabled={load} style={{flex:1,background:C.gold,color:"#16213a",border:"none",borderRadius:8,padding:"9px",fontSize:13,fontWeight:600,cursor:"pointer"}}>{load?"Salvando…":"Salvar metas"}</button><button onClick={()=>setEdit(false)} style={{background:"none",border:`1px solid ${C.border}`,color:C.muted,borderRadius:8,padding:"9px 14px",fontSize:13,cursor:"pointer"}}>Cancelar</button></div>
+    </div>:temMeta?<>
+      {metaFat>0&&<Barra label="Faturamento" atual={calc.entradasMes} meta={metaFat} cor={C.emer}/>}
+      {metaLuc>0&&<Barra label="Lucro" atual={calc.lucro} meta={metaLuc} cor={C.gold}/>}
+    </>:<p style={{fontSize:13,color:C.faint}}>Defina sua meta de faturamento e lucro do mês para acompanhar seu progresso. 🎯</p>}
+  </Panel>;
+}
+
 /* ─── NEGÓCIO ─────────────────────────────────────────────────────── */
-function Negocio({calc}) {
+function Negocio({calc,meta,mes,onMeta,showToast}) {
   return <div className="flex flex-col gap-4">
+    <Metas calc={calc} meta={meta} mes={mes} onMeta={onMeta} showToast={showToast}/>
     <Panel style={{background:calc.coberto?`linear-gradient(160deg,#0c241d,${C.panel})`:`linear-gradient(160deg,#2c1d1a,${C.panel})`,borderColor:(calc.coberto?C.emer:C.coral)+"55"}}>
       <div className="flex items-start gap-3">
         <div style={{width:40,height:40,borderRadius:12,background:(calc.coberto?C.emer:C.coral)+"22",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><ShieldCheck size={20} color={calc.coberto?C.emer:C.coral}/></div>

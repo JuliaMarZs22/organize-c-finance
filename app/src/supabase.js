@@ -49,6 +49,16 @@ export async function inserirLancamentos(linhas, clienteId) {
   const { error } = await supabase.from("lancamentos").insert(comDono);
   return { error };
 }
+export async function carregarMeta(mes) {
+  const { data } = await supabase.from("metas").select("meta_faturamento, meta_lucro").eq("mes", mes).maybeSingle();
+  return data || { meta_faturamento: 0, meta_lucro: 0 };
+}
+export async function salvarMeta(mes, faturamento, lucro) {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: new Error("não autenticado") };
+  const { error } = await supabase.from("metas").upsert({ cliente_id: user.id, mes, meta_faturamento: faturamento, meta_lucro: lucro });
+  return { error };
+}
 export async function carregarDespesasFixas() {
   const { data, error } = await supabase
     .from("despesas_fixas").select("id, nome, valor, ativa").eq("ativa", true).order("nome");

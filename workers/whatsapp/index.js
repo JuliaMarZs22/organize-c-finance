@@ -134,6 +134,12 @@ async function responderConsulta(pergunta, clienteId, env) {
     const dr = await fetch(`${env.SUPABASE_URL}/rest/v1/despesas_fixas?cliente_id=eq.${clienteId}&ativa=eq.true&select=valor`, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } });
     custoFixo = (await dr.json() || []).reduce((s, d) => s + Number(d.valor), 0);
   } catch (_) {}
+  let metaFat = 0, metaLuc = 0;
+  try {
+    const mesAtual0 = new Date().toISOString().slice(0, 7);
+    const mr = await fetch(`${env.SUPABASE_URL}/rest/v1/metas?cliente_id=eq.${clienteId}&mes=eq.${mesAtual0}&select=meta_faturamento,meta_lucro`, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } });
+    const mm = (await mr.json())?.[0]; metaFat = Number(mm?.meta_faturamento || 0); metaLuc = Number(mm?.meta_lucro || 0);
+  } catch (_) {}
 
   const hoje = new Date(); const hojeI = hoje.toISOString().slice(0, 10); const mesAtual = hojeI.slice(0, 7);
   const seteDias = new Date(hoje.getTime() - 7 * 86400000).toISOString().slice(0, 10);
@@ -152,6 +158,7 @@ async function responderConsulta(pergunta, clienteId, env) {
   resumo.lucroMes = resumo.entradasMes - resumo.saidasMes;
   resumo.lucroSemana = resumo.entradasSemana - resumo.saidasSemana;
   resumo.totalAReceber = resumo.pendentes.reduce((s, p) => s + p.pendente, 0);
+  resumo.metaFaturamento = metaFat; resumo.metaLucro = metaLuc;
 
   const ANALISTA = `Você é um assistente financeiro pessoal e consultor de negócios, falando por WhatsApp com um empreendedor brasileiro. Seja DIRETO, caloroso, máx ~7 linhas. Use os DADOS REAIS (R$) para responder.
 Os dados trazem: caixaAtual, custoFixo (mensal), entradas/saídas/lucro do mês (Mes) e da última semana (Semana), totais gerais, pendentes (contas a receber) e totalAReceber, e quebra por produto/serviço (porSubcategoria) e categoria.
@@ -159,6 +166,7 @@ Os dados trazem: caixaAtual, custoFixo (mensal), entradas/saídas/lucro do mês 
 - Se perguntarem da "semana": use entradasSemana/saidasSemana/lucroSemana.
 - Se perguntarem "quem me deve / cobranças": liste os pendentes (pessoa + valor) e o totalAReceber.
 - Se perguntarem o que mais vendeu: use porSubcategoria (entrada).
+- Se houver metaFaturamento/metaLucro > 0 e perguntarem da "meta": compare com entradasMes/lucroMes, diga o % atingido e quanto falta.
 Sempre que fizer sentido, dê 1 conselho prático (capacidade de investir, onde cortar, cobrar quem deve). Formate como R$ 1.234,56. Não invente números. Use *negrito* do WhatsApp.`;
   const rr = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
