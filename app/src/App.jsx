@@ -13,7 +13,7 @@ import {
   supabase, entrar, sair, definirSenha, usuarioAtual, ehAdmin, meuPerfil,
   carregarLancamentos, inserirLancamentos, carregarClientes,
   carregarDespesasFixas, inserirDespesaFixa, excluirDespesaFixa,
-  atualizarSaldoInicial, atualizarCliente,
+  atualizarSaldoInicial, atualizarCliente, editarLancamento,
 } from "./supabase";
 import { sincronizarManual } from "./drive";
 
@@ -355,7 +355,7 @@ function Lancar({user,onAdd,showToast}) {
   const[type,setType]=useState("saida");const[amt,setAmt]=useState("");const[cat,setCat]=useState("Alimentação");const[sub,setSub]=useState("");const[desc,setDesc]=useState("");const[inst,setInst]=useState(1);const[load,setLoad]=useState(false);
   const[dataLanc,setDataLanc]=useState(()=>{const n=today();return mk(n)+"-"+String(Math.min(n.getDate(),28)).padStart(2,"0");});
   const CATS_SAIDA=["Alimentação","Moradia","Transporte","Assinaturas","Lazer","Saúde","Marketing","Equipe","Insumos","Impostos","Pró-labore","Investimento","Outros"];
-  const CATS_ENTRADA=["Vendas","Pró-labore","Investimento","Outros"];
+  const CATS_ENTRADA=["Vendas","Salário","Pró-labore","Investimento","Outros"];
   const cats=type==="saida"?CATS_SAIDA:CATS_ENTRADA;
   const handleType=(t)=>{setType(t);setCat(t==="saida"?"Alimentação":"Vendas");};
   const field={background:C.panel2,border:`1px solid ${C.border}`,color:C.text,fontSize:13,borderRadius:8,padding:"9px 11px",width:"100%",outline:"none"};
@@ -391,7 +391,7 @@ function Lancar({user,onAdd,showToast}) {
 /* ─── LISTA ───────────────────────────────────────────────────────── */
 function Lista({txs,onDelete,showToast}) {
   const NOW=today();const[busca,setBusca]=useState("");const[filtroTipo,setFiltroTipo]=useState("todos");const[filtroCat,setFiltroCat]=useState("todas");const[deleting,setDeleting]=useState(null);
-  const[dataDe,setDataDe]=useState("");const[dataAte,setDataAte]=useState("");
+  const[dataDe,setDataDe]=useState("");const[dataAte,setDataAte]=useState("");const[editTx,setEditTx]=useState(null);
   const fmt=(d)=>new Date(d+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"});
   const cats=[...new Set(txs.map((t)=>t.category))].sort();
   const lista=txs.filter((t)=>{
@@ -462,11 +462,13 @@ function Lista({txs,onDelete,showToast}) {
         <div className="flex items-center justify-center rounded-lg" style={{width:34,height:34,flexShrink:0,background:(canc?C.faint:(t.type==="entrada"?C.emer:C.coral))+"1c"}}>{t.type==="entrada"?<ArrowUpRight size={17} color={canc?C.faint:C.emer}/>:<ArrowDownRight size={17} color={canc?C.faint:C.coral}/>}</div>
         <div className="flex-1" style={{minWidth:0}}><div className="flex items-center gap-2 flex-wrap" style={{fontSize:13.5}}><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:canc?"line-through":"none"}}>{t.desc}</span>{canc&&<Badge color={C.coral}>cancelada</Badge>}{t.pessoa&&<Badge color={C.muted}>{t.pessoa}</Badge>}{fut&&!canc&&<Badge color={C.faint}>previsto</Badge>}{t.parcela&&<Badge color={C.gold}>{t.parcela}</Badge>}{t.pendente>0&&!canc&&<Badge color={C.coral}>falta {brl(t.pendente)}</Badge>}</div><div style={{fontSize:11.5,color:C.faint}}>{fmt(t.date)} · {t.sub?`${t.category} · ${t.sub}`:t.category}</div></div>
         <div style={{fontSize:14,fontWeight:600,color:canc?C.faint:(t.type==="entrada"?C.emer:C.coral),flexShrink:0,textDecoration:canc?"line-through":"none"}}>{t.type==="entrada"?"+":"-"}{brl(t.amount)}</div>
+        <button onClick={()=>setEditTx(t)} style={{background:"none",border:"none",cursor:"pointer",color:C.faint,padding:4,flexShrink:0}} title="Editar"><Settings size={13}/></button>
         <button onClick={()=>excluirLanc(t.id)} disabled={deleting===t.id} style={{background:"none",border:"none",cursor:"pointer",color:C.faint,padding:4,flexShrink:0}} title="Remover">{deleting===t.id?<Loader2 size={13} className="animate-spin"/>:<Trash2 size={13}/>}</button>
       </div>;})}
     </div>
     {lista.length===0&&<div style={{textAlign:"center",padding:24,color:C.faint,fontSize:13}}>Nenhum resultado com esses filtros.</div>}
   </Panel>
+  {editTx&&<EditarLancamento tx={editTx} onClose={()=>setEditTx(null)} onSaved={()=>{setEditTx(null);onDelete();}} showToast={showToast}/>}
   {/* RESUMO POR CATEGORIA (sempre somado) */}
   {resumo.cats.length>0&&<Panel>
     <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -478,6 +480,40 @@ function Lista({txs,onDelete,showToast}) {
       <div className="flex gap-4">{c.entrada>0&&<span style={{color:C.emer}}>+{brl(c.entrada)}</span>}{c.saida>0&&<span style={{color:C.coral}}>-{brl(c.saida)}</span>}</div>
     </div>)}
   </Panel>}
+  </div>;
+}
+
+/* ─── EDITAR LANÇAMENTO (modal) ───────────────────────────────────── */
+function EditarLancamento({tx,onClose,onSaved,showToast}) {
+  const[type,setType]=useState(tx.type);const[amt,setAmt]=useState(String(tx.amount).replace(".",","));
+  const[cat,setCat]=useState(tx.category);const[sub,setSub]=useState(tx.sub||"");const[desc,setDesc]=useState(tx.desc||"");
+  const[pessoa,setPessoa]=useState(tx.pessoa||"");const[data,setData]=useState(tx.date);const[load,setLoad]=useState(false);
+  const CATS_SAIDA=["Alimentação","Moradia","Transporte","Saúde","Assinaturas","Lazer","Marketing","Equipe","Insumos","Impostos","Pró-labore","Investimento","Outros"];
+  const CATS_ENTRADA=["Vendas","Salário","Pró-labore","Investimento","Outros"];
+  const cats=type==="saida"?CATS_SAIDA:CATS_ENTRADA;
+  const field={background:C.panel2,border:`1px solid ${C.border}`,color:C.text,fontSize:13,borderRadius:8,padding:"9px 11px",width:"100%",outline:"none"};
+  const salvar=async()=>{
+    const v=parseBRL(amt);if(isNaN(v)||v<=0)return showToast("Valor inválido","error");
+    setLoad(true);
+    const{error}=await editarLancamento(tx.id,{tipo:type,valor:v,categoria:cat,subcategoria:sub.trim()||null,descricao:desc.trim()||sub.trim()||cat,pessoa:pessoa.trim()||null,data});
+    setLoad(false);
+    if(error)return showToast("Erro ao salvar","error");
+    showToast("Lançamento atualizado!");onSaved();
+  };
+  return <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div onClick={(e)=>e.stopPropagation()} className="rounded-2xl p-5" style={{background:C.panel,border:`1px solid ${C.border2}`,width:"100%",maxWidth:420}}>
+      <div className="flex items-center justify-between mb-4"><div style={{fontSize:15,fontWeight:600}}>Editar lançamento</div><button onClick={onClose} style={{background:"none",border:"none",color:C.faint,cursor:"pointer",fontSize:18}}>✕</button></div>
+      <div className="flex flex-col gap-2.5">
+        <div className="flex gap-1.5">{[["saida","Saída",C.coral],["entrada","Entrada",C.emer]].map(([k,l,col])=><button key={k} onClick={()=>{setType(k);setCat(k==="saida"?"Alimentação":"Vendas");}} className="flex-1 rounded-lg py-2" style={{fontSize:13,fontWeight:600,cursor:"pointer",background:type===k?col+"22":C.panel2,color:type===k?col:C.muted,border:`1px solid ${type===k?col+"66":C.border}`}}>{l}</button>)}</div>
+        <input value={amt} onChange={(e)=>setAmt(e.target.value)} placeholder="Valor (R$)" inputMode="decimal" style={field}/>
+        <select value={cat} onChange={(e)=>setCat(e.target.value)} style={{...field,appearance:"none"}}>{cats.map((c)=><option key={c} value={c} style={{background:C.panel2}}>{c}</option>)}</select>
+        <input value={sub} onChange={(e)=>setSub(e.target.value)} placeholder="Produto/Item (ex: Gasolina, Harmonização)" style={field}/>
+        <input value={desc} onChange={(e)=>setDesc(e.target.value)} placeholder="Descrição" style={field}/>
+        <input value={pessoa} onChange={(e)=>setPessoa(e.target.value)} placeholder="Pessoa (opcional)" style={field}/>
+        <div><div style={{fontSize:11.5,color:C.faint,marginBottom:4}}>Data</div><input type="date" value={data} onChange={(e)=>setData(e.target.value)} style={{...field,colorScheme:"dark"}}/></div>
+        <button onClick={salvar} disabled={load} className="rounded-lg py-2.5 mt-1 flex items-center justify-center gap-2" style={{background:load?C.goldDeep:C.gold,color:"#16213a",fontSize:13.5,fontWeight:600,cursor:load?"not-allowed":"pointer"}}>{load?<><Loader2 size={16} className="animate-spin"/> Salvando…</>:"Salvar alterações"}</button>
+      </div>
+    </div>
   </div>;
 }
 

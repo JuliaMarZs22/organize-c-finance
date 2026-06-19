@@ -83,16 +83,17 @@ async function interpretar(frase, env) {
 HOJE é ${hojeISO}. Use isso para resolver datas relativas.
 Primeiro identifique a INTENÇÃO da mensagem e responda APENAS com JSON, sem markdown.
 
-Formato: {"intencao":"registrar"|"quitar"|"consulta"|"cancelar","type":"entrada"|"saida","total":number,"installments":number,"category":string,"subcategoria":string,"desc":string,"pessoa":string,"pendente":number,"data":string}.
+Formato: {"intencao":"registrar"|"quitar"|"consulta"|"cancelar"|"editar","type":"entrada"|"saida","total":number,"installments":number,"category":string,"subcategoria":string,"desc":string,"pessoa":string,"pendente":number,"data":string,"edit":object}.
 
 INTENÇÃO:
-- "registrar": a pessoa está lançando uma entrada ou saída (ex.: "recebi 300 da Grasiele", "investi 200 em tráfego", "paguei 500 pro influencer").
+- "registrar": a pessoa está lançando uma entrada ou saída (ex.: "recebi 300 da Grasiele", "investi 200 em tráfego", "paguei 500 pro influencer", "recebi meu salário de 3000").
 - "quitar": a pessoa diz que alguém QUITOU/PAGOU o que devia, sem dar valor (ex.: "a Grasiele quitou", "o João me pagou tudo"). Preencha "pessoa", total 0.
-- "cancelar": a pessoa diz que uma venda/compra foi CANCELADA, ESTORNADA ou que houve PEDIDO DE DINHEIRO DE VOLTA/REEMBOLSO (ex.: "a cliente Ana cancelou a compra e quer o dinheiro de volta", "cancelei a compra do notebook", "estornei a venda da harmonização da Grasiele"). Preencha "type" (entrada=venda cancelada, saida=compra cancelada), "pessoa" se houver, "total" o valor se mencionado, "subcategoria"/"desc" o que foi.
-- "consulta": a pessoa está PERGUNTANDO algo sobre as finanças dela (ex.: "quanto vendi esse mês?", "qual procedimento vendeu mais?", "quanto investi em tráfego?", "qual meu lucro?", "como estou?"). Nesse caso só "intencao":"consulta" importa.
+- "cancelar": a pessoa diz que uma venda/compra foi CANCELADA, ESTORNADA ou que houve PEDIDO DE DINHEIRO DE VOLTA/REEMBOLSO. Preencha "type" (entrada=venda cancelada, saida=compra cancelada), "pessoa" se houver, "total" o valor se mencionado.
+- "editar": a pessoa quer CORRIGIR/ALTERAR o ÚLTIMO lançamento (ex.: "não, era 500 não 50", "corrige pra gasolina", "muda a categoria pra saúde", "na verdade foi ontem", "o nome era Ana"). Preencha o objeto "edit" só com os campos a mudar: {"valor":number, "category":string, "subcategoria":string, "desc":string, "pessoa":string, "data":"YYYY-MM-DD", "type":"entrada"|"saida"}. Inclua APENAS os campos que a pessoa pediu para mudar; omita o resto.
+- "consulta": a pessoa está PERGUNTANDO algo sobre as finanças dela. Nesse caso só "intencao":"consulta" importa.
 
 Campos para registrar/quitar:
-- "category": bucket amplo. Para VENDAS de serviço/produto use "Vendas". Para gastos com anúncios/influencer/divulgação use "Marketing". Outras: Alimentação, Moradia, Transporte, Saúde, Assinaturas, Lazer, Pró-labore, Investimento, Equipe, Insumos, Impostos, Outros.
+- "category": bucket amplo. Para VENDAS de serviço/produto use "Vendas". Para SALÁRIO/emprego fixo/renda fixa (quando a pessoa fala "salário", "meu salário", "recebi do trabalho") use "Salário". Para gastos com anúncios/influencer/divulgação use "Marketing". Outras: Alimentação, Moradia, Transporte, Saúde, Assinaturas, Lazer, Pró-labore, Investimento, Equipe, Insumos, Impostos, Outros.
 - "subcategoria": SEMPRE preencha com o item EXATO que a pessoa falou, do jeito dela (ex.: "Gasolina", "Remédio dipirona", "Uber", "Mercado", "Harmonização facial", "Tráfego pago", "Influencer"). NÃO generalize: "gasolina" é "Gasolina" (não "Transporte"); "remédio X" é "Remédio X" (não "Saúde"). A categoria é só o balde amplo; a subcategoria é o que importa pro cliente. Só deixe "" se realmente não der pra identificar o item.
 - "desc": descrição curta e fiel do que foi.
 - "pessoa": nome de quem pagou/recebeu, se houver. Senão "".
@@ -114,7 +115,7 @@ Campos para registrar/quitar:
   const total = Number(j.total) || 0;
   const installments = Math.max(1, Number(j.installments) || 1);
   const dataOk = /^\d{4}-\d{2}-\d{2}$/.test(j.data || "") ? j.data : hojeISO;
-  return { intencao: j.intencao || "registrar", valid: total > 0, type: j.type === "entrada" ? "entrada" : "saida", total, installments, valorParcela: total / installments, category: j.category || "Outros", subcategoria: (j.subcategoria || "").trim() || null, desc: j.desc || frase.trim(), pessoa: (j.pessoa || "").trim() || null, pendente: Number(j.pendente) > 0 ? Number(j.pendente) : null, data: dataOk };
+  return { intencao: j.intencao || "registrar", valid: total > 0, type: j.type === "entrada" ? "entrada" : "saida", total, installments, valorParcela: total / installments, category: j.category || "Outros", subcategoria: (j.subcategoria || "").trim() || null, desc: j.desc || frase.trim(), pessoa: (j.pessoa || "").trim() || null, pendente: Number(j.pendente) > 0 ? Number(j.pendente) : null, data: dataOk, edit: j.edit || null };
 }
 
 // ─── Q&A: responde perguntas financeiras consultando os dados do cliente ───
@@ -163,6 +164,24 @@ async function buscarPendencias(pessoa, clienteId, env) {
   });
   const rows = await r.json();
   return Array.isArray(rows) ? rows : [];
+}
+
+// busca o último lançamento registrado do cliente (para editar)
+async function ultimoLancamento(clienteId, env) {
+  const r = await fetch(`${env.SUPABASE_URL}/rest/v1/lancamentos?cliente_id=eq.${clienteId}&select=id,tipo,valor,categoria,subcategoria,descricao,pessoa,data&order=criado_em.desc&limit=1`, {
+    headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+  });
+  const rows = await r.json();
+  return Array.isArray(rows) && rows[0] ? rows[0] : null;
+}
+
+// aplica edição a um lançamento
+async function aplicarEdicao(id, campos, env) {
+  await fetch(`${env.SUPABASE_URL}/rest/v1/lancamentos?id=eq.${id}`, {
+    method: "PATCH",
+    headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify(campos),
+  });
 }
 
 // busca lançamentos ativos (não cancelados) para cancelar — por pessoa e/ou valor e tipo
@@ -367,6 +386,27 @@ async function processarMensagem(body, env) {
     if (p.intencao === "consulta") {
       const resposta = await responderConsulta(texto, cliente.id, env);
       await enviar(telefone, resposta, env);
+      return;
+    }
+
+    // ─── editar/corrigir o último lançamento ───
+    if (p.intencao === "editar") {
+      const ult = await ultimoLancamento(cliente.id, env);
+      if (!ult) { await enviar(telefone, "Não achei um lançamento recente para corrigir. Me manda de novo? 🙂", env); return; }
+      const e = p.edit || {};
+      const campos = {};
+      if (Number(e.valor) > 0) campos.valor = Number(e.valor);
+      if (e.category) campos.categoria = e.category;
+      if (typeof e.subcategoria === "string") campos.subcategoria = e.subcategoria.trim() || null;
+      if (e.desc) campos.descricao = e.desc;
+      if (typeof e.pessoa === "string") campos.pessoa = e.pessoa.trim() || null;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(e.data || "")) campos.data = e.data;
+      if (e.type === "entrada" || e.type === "saida") campos.tipo = e.type;
+      if (!Object.keys(campos).length) { await enviar(telefone, "Não entendi o que mudar. Ex.: \"era 500, não 50\" ou \"corrige pra gasolina\".", env); return; }
+      await aplicarEdicao(ult.id, campos, env);
+      const fmt2 = (n) => Number(n).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+      const resumoEd = Object.entries(campos).map(([k, v]) => `${k === "valor" ? "valor→" + fmt2(v) : k === "categoria" ? "categoria→" + v : k === "subcategoria" ? "item→" + (v || "—") : k === "descricao" ? "descrição→" + v : k === "pessoa" ? "pessoa→" + (v || "—") : k === "data" ? "data→" + v.split("-").reverse().join("/") : k === "tipo" ? "tipo→" + v : k}`).join(", ");
+      await enviar(telefone, `Corrigido! ✅ Último lançamento atualizado (${resumoEd}).`, env);
       return;
     }
 

@@ -40,6 +40,10 @@ export async function carregarLancamentos() {
   }));
   return { txs, error };
 }
+export async function editarLancamento(id, campos) {
+  const { error } = await supabase.from("lancamentos").update(campos).eq("id", id);
+  return { error };
+}
 export async function inserirLancamentos(linhas, clienteId) {
   const comDono = linhas.map((l) => ({ ...l, cliente_id: clienteId, origem: "manual" }));
   const { error } = await supabase.from("lancamentos").insert(comDono);
