@@ -245,12 +245,15 @@ function Client({user,logout}) {
   const calc=useMemo(()=>{
     const NOW=today();const cur=mk(NOW);const realized=(d)=>new Date(d+"T12:00:00")<=NOW;
     let entradasMes=0,saidasMes=0,proLabore=0,investido=0;const catMap={};
+    const vendaSubMap={},investSubMap={};
     txs.forEach((t)=>{
       if(mk(new Date(t.date+"T12:00:00"))===cur){
-        if(t.type==="entrada")entradasMes+=t.amount;
-        else{saidasMes+=t.amount;if(t.category==="Pró-labore")proLabore+=t.amount;else if(t.category==="Investimento")investido+=t.amount;catMap[t.category]=(catMap[t.category]||0)+t.amount;}
+        if(t.type==="entrada"){entradasMes+=t.amount;const k=t.sub||t.category;vendaSubMap[k]=(vendaSubMap[k]||0)+t.amount;}
+        else{saidasMes+=t.amount;if(t.category==="Pró-labore")proLabore+=t.amount;else if(t.category==="Investimento")investido+=t.amount;catMap[t.category]=(catMap[t.category]||0)+t.amount;if(t.category==="Marketing"||t.category==="Investimento"){const k=t.sub||t.category;investSubMap[k]=(investSubMap[k]||0)+t.amount;}}
       }
     });
+    const vendaSub=Object.entries(vendaSubMap).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
+    const investSub=Object.entries(investSubMap).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
     const rE=txs.filter((t)=>t.type==="entrada"&&realized(t.date)).reduce((s,t)=>s+t.amount,0);
     const rS=txs.filter((t)=>t.type==="saida"&&realized(t.date)).reduce((s,t)=>s+t.amount,0);
     const caixa=Number(perfil?.saldo_inicial||0)+rE-rS;
@@ -263,7 +266,7 @@ function Client({user,logout}) {
     const coberto=caixa+prox.entrada>=totalFixo+reserva;
     const lucro=entradasMes-(saidasMes-proLabore-investido);
     const cats=Object.entries(catMap).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
-    return{caixa,entradasMes,saidasMes,fixa:totalFixo,reserva,mesesReserva,proj,prox,podeGastar,coberto,proLabore,investido,lucro,cats};
+    return{caixa,entradasMes,saidasMes,fixa:totalFixo,reserva,mesesReserva,proj,prox,podeGastar,coberto,proLabore,investido,lucro,cats,vendaSub,investSub};
   },[txs,perfil,despesas]);
 
   if(load)return<Centro><Loader2 size={26} color={C.gold} className="animate-spin"/></Centro>;
@@ -348,9 +351,9 @@ function DespesasFixas({despesas,onUpdate,showToast}) {
 
 /* ─── LANÇAR ──────────────────────────────────────────────────────── */
 function Lancar({user,onAdd,showToast}) {
-  const[type,setType]=useState("saida");const[amt,setAmt]=useState("");const[cat,setCat]=useState("Alimentação");const[desc,setDesc]=useState("");const[inst,setInst]=useState(1);const[load,setLoad]=useState(false);
+  const[type,setType]=useState("saida");const[amt,setAmt]=useState("");const[cat,setCat]=useState("Alimentação");const[sub,setSub]=useState("");const[desc,setDesc]=useState("");const[inst,setInst]=useState(1);const[load,setLoad]=useState(false);
   const[dataLanc,setDataLanc]=useState(()=>{const n=today();return mk(n)+"-"+String(Math.min(n.getDate(),28)).padStart(2,"0");});
-  const CATS_SAIDA=["Alimentação","Moradia","Transporte","Assinaturas","Lazer","Saúde","Pró-labore","Investimento","Outros"];
+  const CATS_SAIDA=["Alimentação","Moradia","Transporte","Assinaturas","Lazer","Saúde","Marketing","Equipe","Insumos","Impostos","Pró-labore","Investimento","Outros"];
   const CATS_ENTRADA=["Vendas","Pró-labore","Investimento","Outros"];
   const cats=type==="saida"?CATS_SAIDA:CATS_ENTRADA;
   const handleType=(t)=>{setType(t);setCat(t==="saida"?"Alimentação":"Vendas");};
@@ -360,11 +363,11 @@ function Lancar({user,onAdd,showToast}) {
     const tot=parseBRL(amt);if(isNaN(tot)||tot<=0)return showToast("Digite um valor válido.","error");
     const n=Math.max(1,Math.min(36,Number(inst)));const valor=Number((tot/n).toFixed(2));const linhas=[];
     const grupoParcela=n>1?crypto.randomUUID():null;const baseDate=new Date(dataLanc+"T12:00:00");
-    for(let i=0;i<n;i++){const d=addMonths(baseDate,i);linhas.push({tipo:type,valor,categoria:cat,descricao:n>1?`${desc||cat} — parcela ${i+1}/${n}`:(desc||cat),data:mk(d)+"-"+String(Math.min(d.getDate(),28)).padStart(2,"0"),fixa:false,grupo_parcela:grupoParcela,parcela_atual:n>1?i+1:null,parcela_total:n>1?n:null});}
+    for(let i=0;i<n;i++){const d=addMonths(baseDate,i);linhas.push({tipo:type,valor,categoria:cat,subcategoria:sub.trim()||null,descricao:n>1?`${desc||sub||cat} — parcela ${i+1}/${n}`:(desc||sub||cat),data:mk(d)+"-"+String(Math.min(d.getDate(),28)).padStart(2,"0"),fixa:false,grupo_parcela:grupoParcela,parcela_atual:n>1?i+1:null,parcela_total:n>1?n:null});}
     setLoad(true);const{error}=await inserirLancamentos(linhas,user.id);
     if(error){setLoad(false);return showToast("Erro ao salvar.","error");}
     try{const{data:{session}}=await supabase.auth.getSession();if(session?.access_token)await sincronizarManual(session.access_token,linhas.map((l)=>({data:l.data,tipo:l.tipo,categoria:l.categoria,descricao:l.descricao,valor:l.valor})));}catch(_){}
-    setLoad(false);setAmt("");setDesc("");setInst(1);showToast(n>1?`${n} parcelas lançadas!`:"Lançamento salvo!");onAdd();
+    setLoad(false);setAmt("");setSub("");setDesc("");setInst(1);showToast(n>1?`${n} parcelas lançadas!`:"Lançamento salvo!");onAdd();
   };
   return <div className="grid gap-4" style={{gridTemplateColumns:"minmax(0,460px)",justifyContent:"center"}}>
     <Panel>
@@ -374,6 +377,7 @@ function Lancar({user,onAdd,showToast}) {
       <div className="flex flex-col gap-2.5">
         <div><input value={amt} onChange={(e)=>setAmt(e.target.value)} placeholder="Valor (R$)" inputMode="decimal" style={field}/>{previewValor()&&<div style={{fontSize:11.5,color:C.gold,marginTop:4}}>{previewValor()}</div>}</div>
         <select value={cat} onChange={(e)=>setCat(e.target.value)} style={{...field,appearance:"none"}}>{cats.map((c)=><option key={c} value={c} style={{background:C.panel2}}>{c}</option>)}</select>
+        <input value={sub} onChange={(e)=>setSub(e.target.value)} placeholder={type==="entrada"?"Produto/Serviço (ex: Harmonização facial)":"Detalhe (ex: Tráfego pago, Influencer)"} style={field}/>
         <input value={desc} onChange={(e)=>setDesc(e.target.value)} placeholder="Descrição (opcional)" style={field}/>
         <div><div style={{fontSize:11.5,color:C.faint,marginBottom:4}}>Data</div><input type="date" value={dataLanc} onChange={(e)=>setDataLanc(e.target.value)} style={{...field,colorScheme:"dark"}}/></div>
         <div className="flex items-center gap-2"><span style={{fontSize:12.5,color:C.muted,whiteSpace:"nowrap"}}>{type==="saida"?"Parcelas:":"Recebimentos futuros:"}</span><input value={inst} onChange={(e)=>setInst(Math.max(1,Math.min(36,Number(e.target.value))))} type="number" min={1} max={36} style={{...field,width:70}}/></div>
@@ -411,8 +415,8 @@ function Lista({txs,onDelete,showToast}) {
   const baixarPlanilha=()=>{
     const n=(v)=>Number(v).toFixed(2).replace(".",",");
     const esc=(s)=>`"${String(s??"").replace(/"/g,'""')}"`;
-    const linhas=[["Data","Tipo","Categoria","Descrição","Pessoa","Valor (R$)","Falta receber/pagar (R$)"]];
-    lista.slice().sort((a,b)=>a.date<b.date?-1:1).forEach((t)=>linhas.push([t.date,t.type==="entrada"?"Entrada":"Saída",t.category,t.desc,t.pessoa||"",n(t.amount),t.pendente?n(t.pendente):""]));
+    const linhas=[["Data","Tipo","Categoria","Produto/Serviço","Descrição","Pessoa","Valor (R$)","Falta receber/pagar (R$)"]];
+    lista.slice().sort((a,b)=>a.date<b.date?-1:1).forEach((t)=>linhas.push([t.date,t.type==="entrada"?"Entrada":"Saída",t.category,t.sub||"",t.desc,t.pessoa||"",n(t.amount),t.pendente?n(t.pendente):""]));
     const totPend=lista.reduce((s,t)=>s+(t.pendente||0),0);
     linhas.push([]);linhas.push(["RESUMO POR CATEGORIA"]);linhas.push(["Categoria","Entradas","Saídas"]);
     resumo.cats.forEach((c)=>linhas.push([c.nome,n(c.entrada||0),n(c.saida||0)]));
@@ -455,7 +459,7 @@ function Lista({txs,onDelete,showToast}) {
     <div className="flex flex-col">
       {lista.map((t,i)=>{const fut=new Date(t.date+"T12:00:00")>NOW;return<div key={t.id} className="flex items-center gap-3 py-2.5" style={{borderTop:i?`1px solid ${C.border}`:"none"}}>
         <div className="flex items-center justify-center rounded-lg" style={{width:34,height:34,flexShrink:0,background:(t.type==="entrada"?C.emer:C.coral)+"1c"}}>{t.type==="entrada"?<ArrowUpRight size={17} color={C.emer}/>:<ArrowDownRight size={17} color={C.coral}/>}</div>
-        <div className="flex-1" style={{minWidth:0}}><div className="flex items-center gap-2 flex-wrap" style={{fontSize:13.5}}><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.desc}</span>{t.pessoa&&<Badge color={C.muted}>{t.pessoa}</Badge>}{fut&&<Badge color={C.faint}>previsto</Badge>}{t.parcela&&<Badge color={C.gold}>{t.parcela}</Badge>}{t.pendente>0&&<Badge color={C.coral}>falta {brl(t.pendente)}</Badge>}</div><div style={{fontSize:11.5,color:C.faint}}>{fmt(t.date)} · {t.category}</div></div>
+        <div className="flex-1" style={{minWidth:0}}><div className="flex items-center gap-2 flex-wrap" style={{fontSize:13.5}}><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.desc}</span>{t.pessoa&&<Badge color={C.muted}>{t.pessoa}</Badge>}{fut&&<Badge color={C.faint}>previsto</Badge>}{t.parcela&&<Badge color={C.gold}>{t.parcela}</Badge>}{t.pendente>0&&<Badge color={C.coral}>falta {brl(t.pendente)}</Badge>}</div><div style={{fontSize:11.5,color:C.faint}}>{fmt(t.date)} · {t.sub?`${t.category} · ${t.sub}`:t.category}</div></div>
         <div style={{fontSize:14,fontWeight:600,color:t.type==="entrada"?C.emer:C.coral,flexShrink:0}}>{t.type==="entrada"?"+":"-"}{brl(t.amount)}</div>
         <button onClick={()=>excluirLanc(t.id)} disabled={deleting===t.id} style={{background:"none",border:"none",cursor:"pointer",color:C.faint,padding:4,flexShrink:0}} title="Remover">{deleting===t.id?<Loader2 size={13} className="animate-spin"/>:<Trash2 size={13}/>}</button>
       </div>;})}
@@ -502,6 +506,27 @@ function Negocio({calc}) {
         :<div style={{width:"100%",height:240}}><ResponsiveContainer><ComposedChart data={calc.proj} margin={{top:10,right:8,left:-8,bottom:0}}><CartesianGrid stroke={C.border} vertical={false}/><XAxis dataKey="label" tick={{fill:C.muted,fontSize:12}} axisLine={{stroke:C.border}} tickLine={false}/><YAxis tick={{fill:C.faint,fontSize:11}} axisLine={false} tickLine={false} tickFormatter={(v)=>`${(v/1000).toFixed(0)}k`}/><Tooltip formatter={(v,n)=>[brl(v),n]} contentStyle={{background:C.panel2,border:`1px solid ${C.border2}`,borderRadius:10,color:C.text,fontSize:12}}/><Legend wrapperStyle={{fontSize:12,color:C.muted}}/><Bar dataKey="entrada" name="Entrada prevista" fill={C.emer} radius={[4,4,0,0]} barSize={18}/><Bar dataKey="fixa" name="Despesa fixa" fill={C.coral} radius={[4,4,0,0]} barSize={18}/><Line dataKey="caixaFim" name="Caixa no fim do mês" stroke={C.gold} strokeWidth={2.5} dot={{r:3,fill:C.gold}}/></ComposedChart></ResponsiveContainer></div>
       }
     </Panel>
+    {/* RANKINGS por produto/serviço e canal de investimento (mês atual) */}
+    <div className="grid gap-4" style={{gridTemplateColumns:"repeat(auto-fit, minmax(280px, 1fr))"}}>
+      <Panel>
+        <div className="flex items-center gap-2 mb-1" style={{fontSize:14,fontWeight:500}}><TrendingUp size={15} color={C.emer}/> O que mais vendeu <span style={{fontSize:11,color:C.faint}}>· este mês</span></div>
+        <p style={{fontSize:11.5,color:C.faint,marginBottom:10}}>Ranking de produtos e serviços por receita.</p>
+        {calc.vendaSub.length===0?<div style={{fontSize:13,color:C.faint,padding:"10px 0"}}>Sem vendas neste mês ainda.</div>
+          :calc.vendaSub.map((s,i)=>{const max=calc.vendaSub[0].value||1;return<div key={s.name} className="mb-2.5">
+            <div className="flex items-center justify-between" style={{fontSize:13,marginBottom:4}}><span><b style={{color:C.faint,marginRight:6}}>{i+1}.</b>{s.name}</span><span style={{color:C.emer,fontWeight:600}}>{brl(s.value)}</span></div>
+            <div style={{height:6,background:C.panel2,borderRadius:99,overflow:"hidden"}}><div style={{width:`${Math.max(8,s.value/max*100)}%`,height:"100%",background:C.emer,borderRadius:99}}/></div>
+          </div>;})}
+      </Panel>
+      <Panel>
+        <div className="flex items-center gap-2 mb-1" style={{fontSize:14,fontWeight:500}}><TrendingDown size={15} color={C.gold}/> Onde investiu <span style={{fontSize:11,color:C.faint}}>· este mês</span></div>
+        <p style={{fontSize:11.5,color:C.faint,marginBottom:10}}>Marketing e investimentos por canal.</p>
+        {calc.investSub.length===0?<div style={{fontSize:13,color:C.faint,padding:"10px 0"}}>Nenhum investimento registrado este mês.</div>
+          :calc.investSub.map((s,i)=>{const max=calc.investSub[0].value||1;return<div key={s.name} className="mb-2.5">
+            <div className="flex items-center justify-between" style={{fontSize:13,marginBottom:4}}><span><b style={{color:C.faint,marginRight:6}}>{i+1}.</b>{s.name}</span><span style={{color:C.gold,fontWeight:600}}>{brl(s.value)}</span></div>
+            <div style={{height:6,background:C.panel2,borderRadius:99,overflow:"hidden"}}><div style={{width:`${Math.max(8,s.value/max*100)}%`,height:"100%",background:C.gold,borderRadius:99}}/></div>
+          </div>;})}
+      </Panel>
+    </div>
   </div>;
 }
 

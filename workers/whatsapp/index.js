@@ -78,17 +78,23 @@ async function transcrever(audioBuf, env) {
 }
 
 async function interpretar(frase, env) {
-  const SYSTEM = `Você é um parser financeiro de um app brasileiro de gestão financeira.
-Extraia a transação da frase e responda APENAS com JSON, sem markdown.
-Formato: {"type":"entrada"|"saida","total":number,"installments":number,"category":string,"desc":string,"pessoa":string,"pendente":number,"quitar":boolean}.
-Categorias: Alimentação, Moradia, Transporte, Assinaturas, Lazer, Saúde, Pró-labore, Investimento, Vendas, Outros.
-Regras dos campos:
-- "desc": descrição clara do que foi (ex.: "Harmonização facial"). Preserve o serviço/produto citado.
-- "pessoa": nome da pessoa envolvida (quem pagou ou para quem foi pago), se mencionado. Senão "".
-- "pendente": valor que AINDA falta receber/pagar dessa mesma transação, se mencionado (ex.: "ainda resta 1000" => 1000). Senão 0.
-- "total": valor efetivamente movimentado AGORA (o que entrou/saiu), não o pendente.
-- "quitar": true APENAS quando a frase diz que alguém QUITOU/PAGOU O QUE DEVIA/ACERTOU A DÍVIDA sem necessariamente dar o valor (ex.: "a Grasiele quitou", "o João me pagou tudo", "fulano acertou a conta"). Nesse caso preencha "pessoa" e deixe "total":0. Caso contrário "quitar":false.
-Se não houver valor claro e não for quitação, total = 0.`;
+  const SYSTEM = `Você é o cérebro de um assistente financeiro brasileiro para empreendedores e autônomos.
+Primeiro identifique a INTENÇÃO da mensagem e responda APENAS com JSON, sem markdown.
+
+Formato: {"intencao":"registrar"|"quitar"|"consulta","type":"entrada"|"saida","total":number,"installments":number,"category":string,"subcategoria":string,"desc":string,"pessoa":string,"pendente":number}.
+
+INTENÇÃO:
+- "registrar": a pessoa está lançando uma entrada ou saída (ex.: "recebi 300 da Grasiele", "investi 200 em tráfego", "paguei 500 pro influencer").
+- "quitar": a pessoa diz que alguém QUITOU/PAGOU o que devia, sem dar valor (ex.: "a Grasiele quitou", "o João me pagou tudo"). Preencha "pessoa", total 0.
+- "consulta": a pessoa está PERGUNTANDO algo sobre as finanças dela (ex.: "quanto vendi esse mês?", "qual procedimento vendeu mais?", "quanto investi em tráfego?", "qual meu lucro?", "como estou?"). Nesse caso só "intencao":"consulta" importa.
+
+Campos para registrar/quitar:
+- "category": bucket amplo. Para VENDAS de serviço/produto use "Vendas". Para gastos com anúncios/influencer/divulgação use "Marketing". Outras: Alimentação, Moradia, Transporte, Assinaturas, Lazer, Saúde, Pró-labore, Investimento, Equipe, Insumos, Impostos, Outros.
+- "subcategoria": o produto/serviço/procedimento/canal ESPECÍFICO (ex.: "Harmonização facial", "Implante", "Lente de resina", "Tráfego pago", "Influencer", "Preenchimento labial"). É o detalhe que diferencia. Se não houver, "".
+- "desc": descrição curta e fiel do que foi.
+- "pessoa": nome de quem pagou/recebeu, se houver. Senão "".
+- "pendente": valor que ainda falta receber/pagar dessa transação, se mencionado. Senão 0.
+- "total": valor movimentado agora. Se for consulta ou não houver valor, 0.`;
 
   const r = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -103,7 +109,45 @@ Se não houver valor claro e não for quitação, total = 0.`;
   const j = JSON.parse(data.choices[0].message.content);
   const total = Number(j.total) || 0;
   const installments = Math.max(1, Number(j.installments) || 1);
-  return { valid: total > 0, type: j.type === "entrada" ? "entrada" : "saida", total, installments, valorParcela: total / installments, category: j.category || "Outros", desc: j.desc || frase.trim(), pessoa: (j.pessoa || "").trim() || null, pendente: Number(j.pendente) > 0 ? Number(j.pendente) : null, quitar: j.quitar === true };
+  return { intencao: j.intencao || "registrar", valid: total > 0, type: j.type === "entrada" ? "entrada" : "saida", total, installments, valorParcela: total / installments, category: j.category || "Outros", subcategoria: (j.subcategoria || "").trim() || null, desc: j.desc || frase.trim(), pessoa: (j.pessoa || "").trim() || null, pendente: Number(j.pendente) > 0 ? Number(j.pendente) : null };
+}
+
+// ─── Q&A: responde perguntas financeiras consultando os dados do cliente ───
+async function responderConsulta(pergunta, clienteId, env) {
+  const r = await fetch(`${env.SUPABASE_URL}/rest/v1/lancamentos?cliente_id=eq.${clienteId}&select=tipo,valor,categoria,subcategoria,descricao,pessoa,valor_pendente,data&order=data.desc&limit=400`, {
+    headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+  });
+  const rows = await r.json();
+  if (!Array.isArray(rows) || !rows.length) return "Ainda não tenho lançamentos seus para analisar. Comece registrando suas entradas e saídas que eu te ajudo a entender o negócio. 💛";
+
+  const hoje = new Date(); const mesAtual = hoje.toISOString().slice(0, 7);
+  const resumo = { mesAtual, totalEntradas: 0, totalSaidas: 0, entradasMes: 0, saidasMes: 0, porSubcategoria: {}, porCategoria: {}, pendentes: [] };
+  for (const t of rows) {
+    const v = Number(t.valor); const noMes = (t.data || "").slice(0, 7) === mesAtual;
+    if (t.tipo === "entrada") { resumo.totalEntradas += v; if (noMes) resumo.entradasMes += v; }
+    else { resumo.totalSaidas += v; if (noMes) resumo.saidasMes += v; }
+    const sk = `${t.tipo}:${t.subcategoria || t.categoria || "Outros"}`;
+    resumo.porSubcategoria[sk] = (resumo.porSubcategoria[sk] || 0) + v;
+    const ck = `${t.tipo}:${t.categoria || "Outros"}`;
+    resumo.porCategoria[ck] = (resumo.porCategoria[ck] || 0) + v;
+    if (Number(t.valor_pendente) > 0) resumo.pendentes.push({ pessoa: t.pessoa, desc: t.descricao, pendente: Number(t.valor_pendente) });
+  }
+  resumo.lucroTotal = resumo.totalEntradas - resumo.totalSaidas;
+
+  const ANALISTA = `Você é um assistente financeiro pessoal e consultor de negócios, falando por WhatsApp com um empreendedor brasileiro. Seja DIRETO, caloroso e use no máximo ~6 linhas. Use os DADOS REAIS fornecidos (em reais, R$) para responder a pergunta. Quando fizer sentido, traga 1 insight ou conselho prático (ex.: qual produto investir mais, capacidade de investimento, onde está vazando dinheiro). Formate valores como R$ 1.234,56. Não invente números além dos dados. Use *negrito* do WhatsApp para destacar.`;
+  const rr = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.OPENAI_API_KEY}` },
+    body: JSON.stringify({
+      model: "gpt-4o-mini", temperature: 0.4,
+      messages: [
+        { role: "system", content: ANALISTA },
+        { role: "user", content: `DADOS (JSON):\n${JSON.stringify(resumo)}\n\nPERGUNTA: ${pergunta}` },
+      ],
+    }),
+  });
+  const data = await rr.json();
+  return (data.choices?.[0]?.message?.content || "Não consegui analisar agora, tenta de novo? 🙂").trim();
 }
 
 // busca pendências em aberto de uma pessoa (valor_pendente > 0)
@@ -136,6 +180,7 @@ function montarLancamentos(p, clienteId) {
       cliente_id: clienteId, tipo: p.type,
       valor: Number(p.valorParcela.toFixed(2)),
       categoria: p.category,
+      subcategoria: p.subcategoria || null,
       descricao: p.installments > 1 ? `${p.desc} — parcela ${i + 1}/${p.installments}` : p.desc,
       data: d.toISOString().slice(0, 10), fixa: false,
       grupo_parcela: grupoParcela,
@@ -151,9 +196,10 @@ function montarLancamentos(p, clienteId) {
 
 function textoConfirmacao(p) {
   const fmt = (n) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const cat = p.subcategoria ? `${p.subcategoria}` : p.category;
   const extra = `${p.pessoa ? ` (${p.pessoa})` : ""}${p.pendente ? ` — falta receber ${fmt(p.pendente)}` : ""}`;
-  if (p.installments > 1) return `Anotei: *${p.installments} entradas de ${fmt(p.valorParcela)}*, uma por mês, em ${p.category}${extra}. Confirma? 👍`;
-  return `Registrei: *${p.type === "entrada" ? "Entrada" : "Saída"} de ${fmt(p.total)}* em ${p.category}${extra}. Confirma? 👍`;
+  if (p.installments > 1) return `Anotei: *${p.installments} entradas de ${fmt(p.valorParcela)}*, uma por mês, em ${cat}${extra}. Confirma? 👍`;
+  return `Registrei: *${p.type === "entrada" ? "Entrada" : "Saída"} de ${fmt(p.total)}* em ${cat}${extra}. Confirma? 👍`;
 }
 
 // Gera variações do número BR: com e sem o 9º dígito do celular.
@@ -284,8 +330,15 @@ async function processarMensagem(body, env) {
     const p = await interpretar(texto, env);
     console.log("Resultado IA:", JSON.stringify(p));
 
+    // ─── consulta/pergunta: "quanto vendi esse mês?" ───
+    if (p.intencao === "consulta") {
+      const resposta = await responderConsulta(texto, cliente.id, env);
+      await enviar(telefone, resposta, env);
+      return;
+    }
+
     // ─── quitação de pendência: "a Grasiele quitou" ───
-    if (p.quitar && p.pessoa) {
+    if (p.intencao === "quitar" && p.pessoa) {
       const pend = await buscarPendencias(p.pessoa, cliente.id, env);
       if (!pend.length) { await enviar(telefone, `Não achei nenhuma pendência em aberto de *${p.pessoa}*. Se quiser, me diga o valor que entrou.`, env); return; }
       const total = pend.reduce((s, r) => s + Number(r.valor_pendente), 0);

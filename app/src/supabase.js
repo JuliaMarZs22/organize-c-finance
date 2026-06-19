@@ -30,11 +30,11 @@ export async function meuPerfil() {
 export async function carregarLancamentos() {
   const { data, error } = await supabase
     .from("lancamentos")
-    .select("id, tipo, valor, categoria, descricao, data, fixa, parcela_atual, parcela_total, pessoa, valor_pendente")
+    .select("id, tipo, valor, categoria, subcategoria, descricao, data, fixa, parcela_atual, parcela_total, pessoa, valor_pendente")
     .order("data", { ascending: false });
   const txs = (data || []).map((r) => ({
     id: r.id, type: r.tipo, amount: Number(r.valor),
-    category: r.categoria, desc: r.descricao, date: r.data, fixa: r.fixa,
+    category: r.categoria, sub: r.subcategoria || "", desc: r.descricao, date: r.data, fixa: r.fixa,
     pessoa: r.pessoa || "", pendente: r.valor_pendente ? Number(r.valor_pendente) : 0,
     parcela: r.parcela_total ? `${r.parcela_atual}/${r.parcela_total}` : undefined,
   }));
