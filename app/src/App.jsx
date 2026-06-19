@@ -275,7 +275,7 @@ function Client({user,logout}) {
 
   if(load)return<Centro><Loader2 size={26} color={C.gold} className="animate-spin"/></Centro>;
 
-  const TABS=[["visao","Visão geral",LayoutGrid],["lancar","Lançar",Plus],["negocio","Negócio",Briefcase],["lancamentos","Lançamentos",ListOrdered],["fixas","Despesas fixas",Settings]];
+  const TABS=[["visao","Visão geral",LayoutGrid],["lancar","Lançar",Plus],["negocio","Negócio",Briefcase],["clientes","Clientes",Users],["lancamentos","Lançamentos",ListOrdered],["fixas","Despesas fixas",Settings]];
 
   return <div className="mx-auto px-4 py-5" style={{maxWidth:1060}}>
     {toastNode}
@@ -286,6 +286,7 @@ function Client({user,logout}) {
     {tab==="visao"&&<Visao calc={calc} perfil={perfil} despesas={despesas} showToast={showToast} onUpdate={recarregar}/>}
     {tab==="lancar"&&<Lancar user={user} onAdd={recarregar} showToast={showToast}/>}
     {tab==="negocio"&&<Negocio calc={calc} meta={meta} mes={mesAtual} onMeta={recarregar} showToast={showToast}/>}
+    {tab==="clientes"&&<Clientes txs={txs}/>}
     {tab==="lancamentos"&&<Lista txs={txs} onDelete={recarregar} showToast={showToast}/>}
     {tab==="fixas"&&<DespesasFixas despesas={despesas} onUpdate={recarregar} showToast={showToast}/>}
   </div>;
@@ -387,6 +388,48 @@ function Lancar({user,onAdd,showToast}) {
         <div className="flex items-center gap-2"><span style={{fontSize:12.5,color:C.muted,whiteSpace:"nowrap"}}>{type==="saida"?"Parcelas:":"Recebimentos futuros:"}</span><input value={inst} onChange={(e)=>setInst(Math.max(1,Math.min(36,Number(e.target.value))))} type="number" min={1} max={36} style={{...field,width:70}}/></div>
         <button onClick={salvar} disabled={load} className="rounded-lg py-2.5 mt-1 flex items-center justify-center gap-2" style={{background:load?C.goldDeep:C.gold,color:"#16213a",fontSize:13.5,fontWeight:600,cursor:load?"not-allowed":"pointer"}}>{load?<><Loader2 size={16} className="animate-spin"/> Salvando…</>:"Adicionar lançamento"}</button>
       </div>
+    </Panel>
+  </div>;
+}
+
+/* ─── CLIENTES (mini-CRM) ─────────────────────────────────────────── */
+function Clientes({txs}) {
+  const[busca,setBusca]=useState("");const[ordem,setOrdem]=useState("gerado");
+  const fmtD=(d)=>new Date(d+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"2-digit"});
+  const mapa=useMemo(()=>{
+    const m={};
+    txs.filter((t)=>t.pessoa&&!t.cancelado).forEach((t)=>{
+      const k=t.pessoa.trim();if(!m[k])m[k]={nome:k,gerado:0,gasto:0,pendente:0,n:0,ult:t.date};
+      if(t.type==="entrada")m[k].gerado+=t.amount;else m[k].gasto+=t.amount;
+      m[k].pendente+=(t.pendente||0);m[k].n++;if(t.date>m[k].ult)m[k].ult=t.date;
+    });
+    return Object.values(m);
+  },[txs]);
+  const totalReceber=mapa.reduce((s,c)=>s+c.pendente,0);
+  const lista=mapa.filter((c)=>c.nome.toLowerCase().includes(busca.toLowerCase()))
+    .sort((a,b)=>ordem==="pendente"?b.pendente-a.pendente:ordem==="recente"?(a.ult<b.ult?1:-1):b.gerado-a.gerado);
+  const devedores=mapa.filter((c)=>c.pendente>0).sort((a,b)=>b.pendente-a.pendente);
+  const fieldSm={background:C.panel2,border:`1px solid ${C.border}`,color:C.text,fontSize:12.5,borderRadius:8,padding:"6px 10px",outline:"none"};
+  if(mapa.length===0)return<Panel><div style={{fontSize:13,color:C.faint,padding:16}}>Quando você registrar com o nome da pessoa (ex: "recebi 300 da Ana"), seus clientes aparecem aqui com quanto cada um gerou e quem te deve.</div></Panel>;
+  return <div className="flex flex-col gap-4">
+    {devedores.length>0&&<Panel style={{borderColor:C.coral+"44"}}>
+      <div className="flex items-center justify-between mb-2"><div className="flex items-center gap-2" style={{fontSize:14,fontWeight:500}}><AlertCircle size={15} color={C.coral}/> A receber</div><div style={{fontSize:13,color:C.coral,fontWeight:600}}>{brl(totalReceber)}</div></div>
+      {devedores.slice(0,6).map((c,i)=><div key={c.nome} className="flex items-center justify-between py-1.5" style={{fontSize:13,borderTop:i?`1px solid ${C.border}`:"none"}}><span>{c.nome}</span><span style={{color:C.coral,fontWeight:600}}>{brl(c.pendente)}</span></div>)}
+    </Panel>}
+    <Panel>
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div className="flex items-center gap-2" style={{fontSize:14,fontWeight:500}}><Users size={16} color={C.gold}/> Seus clientes <span style={{fontSize:12,color:C.faint}}>({mapa.length})</span></div>
+        <div className="flex gap-2">
+          <div style={{position:"relative"}}><Search size={13} color={C.faint} style={{position:"absolute",left:9,top:8}}/><input value={busca} onChange={(e)=>setBusca(e.target.value)} placeholder="Buscar cliente..." style={{...fieldSm,paddingLeft:28,width:160}}/></div>
+          <select value={ordem} onChange={(e)=>setOrdem(e.target.value)} style={fieldSm}><option value="gerado">Mais gerou</option><option value="pendente">Maior dívida</option><option value="recente">Mais recente</option></select>
+        </div>
+      </div>
+      {lista.map((c,i)=><div key={c.nome} className="flex items-center gap-3 py-2.5" style={{borderTop:i?`1px solid ${C.border}`:"none"}}>
+        <div style={{width:34,height:34,borderRadius:"50%",background:C.panel2,border:`1px solid ${C.border}`,fontSize:13,color:C.gold,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{c.nome[0].toUpperCase()}</div>
+        <div className="flex-1" style={{minWidth:0}}><div style={{fontSize:14,fontWeight:500}}>{c.nome}</div><div style={{fontSize:11.5,color:C.faint}}>{c.n} {c.n===1?"lançamento":"lançamentos"} · última {fmtD(c.ult)}</div></div>
+        <div style={{textAlign:"right",flexShrink:0}}><div style={{fontSize:14,fontWeight:600,color:C.emer}}>{brl(c.gerado)}</div>{c.pendente>0&&<div style={{fontSize:11.5,color:C.coral}}>deve {brl(c.pendente)}</div>}</div>
+      </div>)}
+      {lista.length===0&&<div style={{textAlign:"center",padding:20,color:C.faint,fontSize:13}}>Nenhum cliente com esse nome.</div>}
     </Panel>
   </div>;
 }
