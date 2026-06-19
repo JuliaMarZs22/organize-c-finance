@@ -78,10 +78,12 @@ async function transcrever(audioBuf, env) {
 }
 
 async function interpretar(frase, env) {
+  const hojeISO = new Date().toISOString().slice(0, 10);
   const SYSTEM = `Você é o cérebro de um assistente financeiro brasileiro para empreendedores e autônomos.
+HOJE é ${hojeISO}. Use isso para resolver datas relativas.
 Primeiro identifique a INTENÇÃO da mensagem e responda APENAS com JSON, sem markdown.
 
-Formato: {"intencao":"registrar"|"quitar"|"consulta"|"cancelar","type":"entrada"|"saida","total":number,"installments":number,"category":string,"subcategoria":string,"desc":string,"pessoa":string,"pendente":number}.
+Formato: {"intencao":"registrar"|"quitar"|"consulta"|"cancelar","type":"entrada"|"saida","total":number,"installments":number,"category":string,"subcategoria":string,"desc":string,"pessoa":string,"pendente":number,"data":string}.
 
 INTENÇÃO:
 - "registrar": a pessoa está lançando uma entrada ou saída (ex.: "recebi 300 da Grasiele", "investi 200 em tráfego", "paguei 500 pro influencer").
@@ -90,12 +92,13 @@ INTENÇÃO:
 - "consulta": a pessoa está PERGUNTANDO algo sobre as finanças dela (ex.: "quanto vendi esse mês?", "qual procedimento vendeu mais?", "quanto investi em tráfego?", "qual meu lucro?", "como estou?"). Nesse caso só "intencao":"consulta" importa.
 
 Campos para registrar/quitar:
-- "category": bucket amplo. Para VENDAS de serviço/produto use "Vendas". Para gastos com anúncios/influencer/divulgação use "Marketing". Outras: Alimentação, Moradia, Transporte, Assinaturas, Lazer, Saúde, Pró-labore, Investimento, Equipe, Insumos, Impostos, Outros.
-- "subcategoria": o produto/serviço/procedimento/canal ESPECÍFICO (ex.: "Harmonização facial", "Implante", "Lente de resina", "Tráfego pago", "Influencer", "Preenchimento labial"). É o detalhe que diferencia. Se não houver, "".
+- "category": bucket amplo. Para VENDAS de serviço/produto use "Vendas". Para gastos com anúncios/influencer/divulgação use "Marketing". Outras: Alimentação, Moradia, Transporte, Saúde, Assinaturas, Lazer, Pró-labore, Investimento, Equipe, Insumos, Impostos, Outros.
+- "subcategoria": SEMPRE preencha com o item EXATO que a pessoa falou, do jeito dela (ex.: "Gasolina", "Remédio dipirona", "Uber", "Mercado", "Harmonização facial", "Tráfego pago", "Influencer"). NÃO generalize: "gasolina" é "Gasolina" (não "Transporte"); "remédio X" é "Remédio X" (não "Saúde"). A categoria é só o balde amplo; a subcategoria é o que importa pro cliente. Só deixe "" se realmente não der pra identificar o item.
 - "desc": descrição curta e fiel do que foi.
 - "pessoa": nome de quem pagou/recebeu, se houver. Senão "".
 - "pendente": valor que ainda falta receber/pagar dessa transação, se mencionado. Senão 0.
-- "total": valor movimentado agora. Se for consulta ou não houver valor, 0.`;
+- "total": valor movimentado agora. Se for consulta ou não houver valor, 0.
+- "data": data do lançamento no formato YYYY-MM-DD. Resolva relativo a HOJE (${hojeISO}): "ontem", "anteontem", "dia 5", "5 de junho", "semana passada", "10/07", "dia 10 do mês que vem", etc. Funciona para datas PASSADAS e FUTURAS. Se a pessoa não disser data, use ${hojeISO}.`;
 
   const r = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -110,7 +113,8 @@ Campos para registrar/quitar:
   const j = JSON.parse(data.choices[0].message.content);
   const total = Number(j.total) || 0;
   const installments = Math.max(1, Number(j.installments) || 1);
-  return { intencao: j.intencao || "registrar", valid: total > 0, type: j.type === "entrada" ? "entrada" : "saida", total, installments, valorParcela: total / installments, category: j.category || "Outros", subcategoria: (j.subcategoria || "").trim() || null, desc: j.desc || frase.trim(), pessoa: (j.pessoa || "").trim() || null, pendente: Number(j.pendente) > 0 ? Number(j.pendente) : null };
+  const dataOk = /^\d{4}-\d{2}-\d{2}$/.test(j.data || "") ? j.data : hojeISO;
+  return { intencao: j.intencao || "registrar", valid: total > 0, type: j.type === "entrada" ? "entrada" : "saida", total, installments, valorParcela: total / installments, category: j.category || "Outros", subcategoria: (j.subcategoria || "").trim() || null, desc: j.desc || frase.trim(), pessoa: (j.pessoa || "").trim() || null, pendente: Number(j.pendente) > 0 ? Number(j.pendente) : null, data: dataOk };
 }
 
 // ─── Q&A: responde perguntas financeiras consultando os dados do cliente ───
@@ -192,11 +196,11 @@ async function zerarPendencias(ids, env) {
 }
 
 function montarLancamentos(p, clienteId) {
-  const hoje = new Date();
+  const base = p.data ? new Date(p.data + "T12:00:00") : new Date();
   const grupoParcela = p.installments > 1 ? crypto.randomUUID() : null;
   const linhas = [];
   for (let i = 0; i < p.installments; i++) {
-    const d = new Date(hoje.getFullYear(), hoje.getMonth() + i, Math.min(hoje.getDate(), 28));
+    const d = new Date(base.getFullYear(), base.getMonth() + i, Math.min(base.getDate(), 28));
     linhas.push({
       cliente_id: clienteId, tipo: p.type,
       valor: Number(p.valorParcela.toFixed(2)),
@@ -218,9 +222,11 @@ function montarLancamentos(p, clienteId) {
 function textoConfirmacao(p) {
   const fmt = (n) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   const cat = p.subcategoria ? `${p.subcategoria}` : p.category;
+  const hojeISO = new Date().toISOString().slice(0, 10);
+  const dataTxt = p.data && p.data !== hojeISO ? ` em ${p.data.split("-").reverse().join("/")}` : "";
   const extra = `${p.pessoa ? ` (${p.pessoa})` : ""}${p.pendente ? ` — falta receber ${fmt(p.pendente)}` : ""}`;
   if (p.installments > 1) return `Anotei: *${p.installments} entradas de ${fmt(p.valorParcela)}*, uma por mês, em ${cat}${extra}. Confirma? 👍`;
-  return `Registrei: *${p.type === "entrada" ? "Entrada" : "Saída"} de ${fmt(p.total)}* em ${cat}${extra}. Confirma? 👍`;
+  return `Registrei: *${p.type === "entrada" ? "Entrada" : "Saída"} de ${fmt(p.total)}*${dataTxt} em ${cat}${extra}. Confirma? 👍`;
 }
 
 // Gera variações do número BR: com e sem o 9º dígito do celular.

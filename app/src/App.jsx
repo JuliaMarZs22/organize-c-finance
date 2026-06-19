@@ -250,7 +250,7 @@ function Client({user,logout}) {
     ativos.forEach((t)=>{
       if(mk(new Date(t.date+"T12:00:00"))===cur){
         if(t.type==="entrada"){entradasMes+=t.amount;const k=t.sub||t.category;vendaSubMap[k]=(vendaSubMap[k]||0)+t.amount;}
-        else{saidasMes+=t.amount;if(t.category==="Pró-labore")proLabore+=t.amount;else if(t.category==="Investimento")investido+=t.amount;catMap[t.category]=(catMap[t.category]||0)+t.amount;if(t.category==="Marketing"||t.category==="Investimento"){const k=t.sub||t.category;investSubMap[k]=(investSubMap[k]||0)+t.amount;}}
+        else{saidasMes+=t.amount;if(t.category==="Pró-labore")proLabore+=t.amount;else if(t.category==="Investimento")investido+=t.amount;const gk=t.sub||t.category;catMap[gk]=(catMap[gk]||0)+t.amount;if(t.category==="Marketing"||t.category==="Investimento"){const k=t.sub||t.category;investSubMap[k]=(investSubMap[k]||0)+t.amount;}}
       }
     });
     const vendaSub=Object.entries(vendaSubMap).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
@@ -305,7 +305,7 @@ function Visao({calc,perfil,despesas,onUpdate,showToast}) {
 
     <WhatsAppBanner/>
     <Panel>
-      <div className="flex items-center justify-between mb-3"><div style={{fontSize:14,fontWeight:500}}>Gastos por categoria</div><div style={{fontSize:12,color:C.faint}}>{brl(calc.saidasMes)}</div></div>
+      <div className="flex items-center justify-between mb-3"><div style={{fontSize:14,fontWeight:500}}>Gastos por item</div><div style={{fontSize:12,color:C.faint}}>{brl(calc.saidasMes)}</div></div>
       {calc.cats.length===0
         ?<div style={{fontSize:13,color:C.faint,padding:16}}>Ainda sem lançamentos neste mês. Mande um áudio no WhatsApp ou lance manualmente.</div>
         :<div className="flex items-center gap-4 flex-wrap">
