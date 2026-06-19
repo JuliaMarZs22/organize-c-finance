@@ -14,7 +14,7 @@ import {
   carregarLancamentos, inserirLancamentos, carregarClientes,
   carregarDespesasFixas, inserirDespesaFixa, excluirDespesaFixa,
   atualizarSaldoInicial, atualizarCliente, editarLancamento,
-  carregarMeta, salvarMeta,
+  carregarMeta, salvarMeta, salvarPlanejamento,
 } from "./supabase";
 import { sincronizarManual } from "./drive";
 
@@ -285,7 +285,7 @@ function Client({user,logout}) {
     </div>
     {tab==="visao"&&<Visao calc={calc} perfil={perfil} despesas={despesas} showToast={showToast} onUpdate={recarregar}/>}
     {tab==="lancar"&&<Lancar user={user} onAdd={recarregar} showToast={showToast}/>}
-    {tab==="negocio"&&<Negocio calc={calc} meta={meta} mes={mesAtual} onMeta={recarregar} showToast={showToast}/>}
+    {tab==="negocio"&&<Negocio calc={calc} meta={meta} mes={mesAtual} onMeta={recarregar} showToast={showToast} perfil={perfil}/>}
     {tab==="clientes"&&<Clientes txs={txs}/>}
     {tab==="lancamentos"&&<Lista txs={txs} onDelete={recarregar} showToast={showToast}/>}
     {tab==="fixas"&&<DespesasFixas despesas={despesas} onUpdate={recarregar} showToast={showToast}/>}
@@ -592,10 +592,45 @@ function Metas({calc,meta,mes,onMeta,showToast}) {
   </Panel>;
 }
 
+/* ─── PLANEJAMENTO DO DONO (imposto + pró-labore) ─────────────────── */
+function Planejamento({calc,perfil,onUpdate,showToast}) {
+  const[edit,setEdit]=useState(false);const[imp,setImp]=useState("");const[pro,setPro]=useState("");const[load,setLoad]=useState(false);
+  const impPct=Number(perfil?.imposto_pct||0);const proAlvo=Number(perfil?.prolabore_alvo||0);
+  const config=impPct>0||proAlvo>0;
+  const reservaImposto=calc.entradasMes*impPct/100;
+  const proRetirado=calc.proLabore;const faltaPro=Math.max(0,proAlvo-proRetirado);
+  const sobra=calc.entradasMes-calc.saidasMes-reservaImposto; // disponível depois de custos e reserva de imposto
+  const field={background:C.panel2,border:`1px solid ${C.border}`,color:C.text,fontSize:13,borderRadius:8,padding:"9px 11px",width:"100%",outline:"none"};
+  const abrir=()=>{setImp(impPct?String(impPct).replace(".",","):"");setPro(proAlvo?String(proAlvo).replace(".",","):"");setEdit(true);};
+  const salvar=async()=>{const i=parseBRL(imp)||0;const p=parseBRL(pro)||0;setLoad(true);const{error}=await salvarPlanejamento(i,p);setLoad(false);if(error)return showToast("Erro ao salvar","error");setEdit(false);showToast("Planejamento salvo! 🏷️");onUpdate();};
+  return <Panel>
+    <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center gap-2" style={{fontSize:14,fontWeight:500}}><PiggyBank size={16} color={C.emer}/> Planejamento do dono</div>
+      <button onClick={abrir} style={{background:"none",border:`1px solid ${C.border}`,color:C.muted,borderRadius:8,padding:"5px 11px",fontSize:12,cursor:"pointer"}}>{config?"Editar":"Configurar"}</button>
+    </div>
+    {edit?<div className="flex flex-col gap-2">
+      <div><div style={{fontSize:11.5,color:C.faint,marginBottom:4}}>% para reservar de imposto (ex: 6 para Simples Nacional)</div><input value={imp} onChange={(e)=>setImp(e.target.value)} placeholder="Ex: 6" inputMode="decimal" style={field}/></div>
+      <div><div style={{fontSize:11.5,color:C.faint,marginBottom:4}}>Pró-labore alvo do mês (sua retirada fixa)</div><input value={pro} onChange={(e)=>setPro(e.target.value)} placeholder="Ex: 5000" inputMode="decimal" style={field}/></div>
+      <div className="flex gap-2 mt-1"><button onClick={salvar} disabled={load} style={{flex:1,background:C.gold,color:"#16213a",border:"none",borderRadius:8,padding:"9px",fontSize:13,fontWeight:600,cursor:"pointer"}}>{load?"Salvando…":"Salvar"}</button><button onClick={()=>setEdit(false)} style={{background:"none",border:`1px solid ${C.border}`,color:C.muted,borderRadius:8,padding:"9px 14px",fontSize:13,cursor:"pointer"}}>Cancelar</button></div>
+    </div>:config?<div className="flex flex-col gap-3">
+      {impPct>0&&<div className="flex items-start gap-3 p-3 rounded-xl" style={{background:C.panel2}}>
+        <div style={{width:34,height:34,borderRadius:10,background:C.gold+"22",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Banknote size={17} color={C.gold}/></div>
+        <div className="flex-1"><div style={{fontSize:13,fontWeight:600}}>Reserve {brl(reservaImposto)} para imposto</div><div style={{fontSize:12,color:C.muted,marginTop:2}}>{impPct}% do que entrou este mês ({brl(calc.entradasMes)}). Separe agora e não tome susto depois. 💡</div></div>
+      </div>}
+      {proAlvo>0&&<div className="flex items-start gap-3 p-3 rounded-xl" style={{background:C.panel2}}>
+        <div style={{width:34,height:34,borderRadius:10,background:C.emer+"22",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Banknote size={17} color={C.emer}/></div>
+        <div className="flex-1"><div style={{fontSize:13,fontWeight:600}}>Pró-labore: {brl(proRetirado)} de {brl(proAlvo)}</div><div style={{fontSize:12,color:C.muted,marginTop:2}}>{faltaPro>0?`Você ainda pode retirar ${brl(faltaPro)} este mês.`:`Você já retirou sua meta de pró-labore. 👏`}</div></div>
+      </div>}
+      <div style={{fontSize:12.5,color:C.faint,borderTop:`1px solid ${C.border}`,paddingTop:10}}>Sobra para o negócio (depois de custos e reserva de imposto): <b style={{color:sobra>=0?C.emer:C.coral}}>{brl(sobra)}</b></div>
+    </div>:<p style={{fontSize:13,color:C.faint}}>Configure quanto separar de imposto (%) e seu pró-labore alvo. O assistente calcula automaticamente quanto reservar a cada mês. 🏷️</p>}
+  </Panel>;
+}
+
 /* ─── NEGÓCIO ─────────────────────────────────────────────────────── */
-function Negocio({calc,meta,mes,onMeta,showToast}) {
+function Negocio({calc,meta,mes,onMeta,showToast,perfil}) {
   return <div className="flex flex-col gap-4">
     <Metas calc={calc} meta={meta} mes={mes} onMeta={onMeta} showToast={showToast}/>
+    <Planejamento calc={calc} perfil={perfil} onUpdate={onMeta} showToast={showToast}/>
     <Panel style={{background:calc.coberto?`linear-gradient(160deg,#0c241d,${C.panel})`:`linear-gradient(160deg,#2c1d1a,${C.panel})`,borderColor:(calc.coberto?C.emer:C.coral)+"55"}}>
       <div className="flex items-start gap-3">
         <div style={{width:40,height:40,borderRadius:12,background:(calc.coberto?C.emer:C.coral)+"22",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><ShieldCheck size={20} color={calc.coberto?C.emer:C.coral}/></div>

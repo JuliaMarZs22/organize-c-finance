@@ -129,8 +129,8 @@ async function responderConsulta(pergunta, clienteId, env) {
   // dados do cliente (saldo inicial) + custo fixo, para calcular caixa
   let saldoInicial = 0, custoFixo = 0;
   try {
-    const cr = await fetch(`${env.SUPABASE_URL}/rest/v1/clientes?id=eq.${clienteId}&select=saldo_inicial`, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } });
-    saldoInicial = Number((await cr.json())?.[0]?.saldo_inicial || 0);
+    const cr = await fetch(`${env.SUPABASE_URL}/rest/v1/clientes?id=eq.${clienteId}&select=saldo_inicial,imposto_pct,prolabore_alvo`, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } });
+    const cli0 = (await cr.json())?.[0] || {}; saldoInicial = Number(cli0.saldo_inicial || 0); var impostoPct = Number(cli0.imposto_pct || 0), prolaboreAlvo = Number(cli0.prolabore_alvo || 0);
     const dr = await fetch(`${env.SUPABASE_URL}/rest/v1/despesas_fixas?cliente_id=eq.${clienteId}&ativa=eq.true&select=valor`, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } });
     custoFixo = (await dr.json() || []).reduce((s, d) => s + Number(d.valor), 0);
   } catch (_) {}
@@ -159,6 +159,7 @@ async function responderConsulta(pergunta, clienteId, env) {
   resumo.lucroSemana = resumo.entradasSemana - resumo.saidasSemana;
   resumo.totalAReceber = resumo.pendentes.reduce((s, p) => s + p.pendente, 0);
   resumo.metaFaturamento = metaFat; resumo.metaLucro = metaLuc;
+  try { resumo.impostoPct = impostoPct; resumo.reservaImpostoSugerida = resumo.entradasMes * impostoPct / 100; resumo.prolaboreAlvo = prolaboreAlvo; } catch (_) {}
 
   const ANALISTA = `Você é um assistente financeiro pessoal e consultor de negócios, falando por WhatsApp com um empreendedor brasileiro. Seja DIRETO, caloroso, máx ~7 linhas. Use os DADOS REAIS (R$) para responder.
 Os dados trazem: caixaAtual, custoFixo (mensal), entradas/saídas/lucro do mês (Mes) e da última semana (Semana), totais gerais, pendentes (contas a receber) e totalAReceber, e quebra por produto/serviço (porSubcategoria) e categoria.
@@ -167,6 +168,7 @@ Os dados trazem: caixaAtual, custoFixo (mensal), entradas/saídas/lucro do mês 
 - Se perguntarem "quem me deve / cobranças": liste os pendentes (pessoa + valor) e o totalAReceber.
 - Se perguntarem o que mais vendeu: use porSubcategoria (entrada).
 - Se houver metaFaturamento/metaLucro > 0 e perguntarem da "meta": compare com entradasMes/lucroMes, diga o % atingido e quanto falta.
+- Se houver impostoPct > 0 e perguntarem de imposto/reserva: diga para reservar reservaImpostoSugerida (impostoPct% do que entrou no mês). Se prolaboreAlvo > 0 e perguntarem de pró-labore/retirada: informe o alvo e quanto já foi retirado.
 Sempre que fizer sentido, dê 1 conselho prático (capacidade de investir, onde cortar, cobrar quem deve). Formate como R$ 1.234,56. Não invente números. Use *negrito* do WhatsApp.`;
   const rr = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
