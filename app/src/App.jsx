@@ -244,9 +244,10 @@ function Client({user,logout}) {
 
   const calc=useMemo(()=>{
     const NOW=today();const cur=mk(NOW);const realized=(d)=>new Date(d+"T12:00:00")<=NOW;
+    const ativos=txs.filter((t)=>!t.cancelado); // cancelados não entram no somatório
     let entradasMes=0,saidasMes=0,proLabore=0,investido=0;const catMap={};
     const vendaSubMap={},investSubMap={};
-    txs.forEach((t)=>{
+    ativos.forEach((t)=>{
       if(mk(new Date(t.date+"T12:00:00"))===cur){
         if(t.type==="entrada"){entradasMes+=t.amount;const k=t.sub||t.category;vendaSubMap[k]=(vendaSubMap[k]||0)+t.amount;}
         else{saidasMes+=t.amount;if(t.category==="Pró-labore")proLabore+=t.amount;else if(t.category==="Investimento")investido+=t.amount;catMap[t.category]=(catMap[t.category]||0)+t.amount;if(t.category==="Marketing"||t.category==="Investimento"){const k=t.sub||t.category;investSubMap[k]=(investSubMap[k]||0)+t.amount;}}
@@ -254,13 +255,13 @@ function Client({user,logout}) {
     });
     const vendaSub=Object.entries(vendaSubMap).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
     const investSub=Object.entries(investSubMap).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
-    const rE=txs.filter((t)=>t.type==="entrada"&&realized(t.date)).reduce((s,t)=>s+t.amount,0);
-    const rS=txs.filter((t)=>t.type==="saida"&&realized(t.date)).reduce((s,t)=>s+t.amount,0);
+    const rE=ativos.filter((t)=>t.type==="entrada"&&realized(t.date)).reduce((s,t)=>s+t.amount,0);
+    const rS=ativos.filter((t)=>t.type==="saida"&&realized(t.date)).reduce((s,t)=>s+t.amount,0);
     const caixa=Number(perfil?.saldo_inicial||0)+rE-rS;
     const totalFixo=despesas.reduce((s,d)=>s+Number(d.valor),0);
     const mesesReserva=Number(perfil?.reserva_meses||1);const reserva=totalFixo*mesesReserva;
     const proj=[];let run=caixa;
-    for(let i=1;i<=5;i++){const key=mk(addMonths(NOW,i));const ent=txs.filter((t)=>t.type==="entrada"&&mk(new Date(t.date+"T12:00:00"))===key).reduce((s,t)=>s+t.amount,0);run=run+ent-totalFixo;proj.push({key,label:monthLabel(key),entrada:ent,fixa:totalFixo,caixaFim:Math.round(run)});}
+    for(let i=1;i<=5;i++){const key=mk(addMonths(NOW,i));const ent=ativos.filter((t)=>t.type==="entrada"&&mk(new Date(t.date+"T12:00:00"))===key).reduce((s,t)=>s+t.amount,0);run=run+ent-totalFixo;proj.push({key,label:monthLabel(key),entrada:ent,fixa:totalFixo,caixaFim:Math.round(run)});}
     const prox=proj[0]||{entrada:0,key:mk(addMonths(NOW,1))};
     const podeGastar=caixa+prox.entrada-totalFixo-reserva;
     const coberto=caixa+prox.entrada>=totalFixo+reserva;
@@ -407,7 +408,7 @@ function Lista({txs,onDelete,showToast}) {
   // resumo por categoria (sempre somado) sobre a lista filtrada
   const resumo=useMemo(()=>{
     const m={};let totEnt=0,totSai=0;
-    lista.forEach((t)=>{const k=t.category||"Outros";if(!m[k])m[k]={entrada:0,saida:0};m[k][t.type]=(m[k][t.type]||0)+t.amount;if(t.type==="entrada")totEnt+=t.amount;else totSai+=t.amount;});
+    lista.filter((t)=>!t.cancelado).forEach((t)=>{const k=t.category||"Outros";if(!m[k])m[k]={entrada:0,saida:0};m[k][t.type]=(m[k][t.type]||0)+t.amount;if(t.type==="entrada")totEnt+=t.amount;else totSai+=t.amount;});
     const cats=Object.entries(m).map(([nome,v])=>({nome,...v,total:(v.saida||0)+(v.entrada||0)})).sort((a,b)=>(b.saida+b.entrada)-(a.saida+a.entrada));
     return{cats,totEnt,totSai,saldo:totEnt-totSai};
   },[lista]);
@@ -415,9 +416,9 @@ function Lista({txs,onDelete,showToast}) {
   const baixarPlanilha=()=>{
     const n=(v)=>Number(v).toFixed(2).replace(".",",");
     const esc=(s)=>`"${String(s??"").replace(/"/g,'""')}"`;
-    const linhas=[["Data","Tipo","Categoria","Produto/Serviço","Descrição","Pessoa","Valor (R$)","Falta receber/pagar (R$)"]];
-    lista.slice().sort((a,b)=>a.date<b.date?-1:1).forEach((t)=>linhas.push([t.date,t.type==="entrada"?"Entrada":"Saída",t.category,t.sub||"",t.desc,t.pessoa||"",n(t.amount),t.pendente?n(t.pendente):""]));
-    const totPend=lista.reduce((s,t)=>s+(t.pendente||0),0);
+    const linhas=[["Data","Tipo","Categoria","Produto/Serviço","Descrição","Pessoa","Status","Valor (R$)","Falta receber/pagar (R$)"]];
+    lista.slice().sort((a,b)=>a.date<b.date?-1:1).forEach((t)=>linhas.push([t.date,t.type==="entrada"?"Entrada":"Saída",t.category,t.sub||"",t.desc,t.pessoa||"",t.cancelado?"CANCELADA":"OK",n(t.amount),t.pendente?n(t.pendente):""]));
+    const totPend=lista.filter((t)=>!t.cancelado).reduce((s,t)=>s+(t.pendente||0),0);
     linhas.push([]);linhas.push(["RESUMO POR CATEGORIA"]);linhas.push(["Categoria","Entradas","Saídas"]);
     resumo.cats.forEach((c)=>linhas.push([c.nome,n(c.entrada||0),n(c.saida||0)]));
     linhas.push([]);linhas.push(["TOTAIS"]);
@@ -457,10 +458,10 @@ function Lista({txs,onDelete,showToast}) {
       <select value={filtroCat} onChange={(e)=>setFiltroCat(e.target.value)} style={fieldSm}><option value="todas">Todas as categorias</option>{cats.map((c)=><option key={c} value={c}>{c}</option>)}</select>
     </div>
     <div className="flex flex-col">
-      {lista.map((t,i)=>{const fut=new Date(t.date+"T12:00:00")>NOW;return<div key={t.id} className="flex items-center gap-3 py-2.5" style={{borderTop:i?`1px solid ${C.border}`:"none"}}>
-        <div className="flex items-center justify-center rounded-lg" style={{width:34,height:34,flexShrink:0,background:(t.type==="entrada"?C.emer:C.coral)+"1c"}}>{t.type==="entrada"?<ArrowUpRight size={17} color={C.emer}/>:<ArrowDownRight size={17} color={C.coral}/>}</div>
-        <div className="flex-1" style={{minWidth:0}}><div className="flex items-center gap-2 flex-wrap" style={{fontSize:13.5}}><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.desc}</span>{t.pessoa&&<Badge color={C.muted}>{t.pessoa}</Badge>}{fut&&<Badge color={C.faint}>previsto</Badge>}{t.parcela&&<Badge color={C.gold}>{t.parcela}</Badge>}{t.pendente>0&&<Badge color={C.coral}>falta {brl(t.pendente)}</Badge>}</div><div style={{fontSize:11.5,color:C.faint}}>{fmt(t.date)} · {t.sub?`${t.category} · ${t.sub}`:t.category}</div></div>
-        <div style={{fontSize:14,fontWeight:600,color:t.type==="entrada"?C.emer:C.coral,flexShrink:0}}>{t.type==="entrada"?"+":"-"}{brl(t.amount)}</div>
+      {lista.map((t,i)=>{const fut=new Date(t.date+"T12:00:00")>NOW;const canc=t.cancelado;return<div key={t.id} className="flex items-center gap-3 py-2.5" style={{borderTop:i?`1px solid ${C.border}`:"none",opacity:canc?0.55:1}}>
+        <div className="flex items-center justify-center rounded-lg" style={{width:34,height:34,flexShrink:0,background:(canc?C.faint:(t.type==="entrada"?C.emer:C.coral))+"1c"}}>{t.type==="entrada"?<ArrowUpRight size={17} color={canc?C.faint:C.emer}/>:<ArrowDownRight size={17} color={canc?C.faint:C.coral}/>}</div>
+        <div className="flex-1" style={{minWidth:0}}><div className="flex items-center gap-2 flex-wrap" style={{fontSize:13.5}}><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:canc?"line-through":"none"}}>{t.desc}</span>{canc&&<Badge color={C.coral}>cancelada</Badge>}{t.pessoa&&<Badge color={C.muted}>{t.pessoa}</Badge>}{fut&&!canc&&<Badge color={C.faint}>previsto</Badge>}{t.parcela&&<Badge color={C.gold}>{t.parcela}</Badge>}{t.pendente>0&&!canc&&<Badge color={C.coral}>falta {brl(t.pendente)}</Badge>}</div><div style={{fontSize:11.5,color:C.faint}}>{fmt(t.date)} · {t.sub?`${t.category} · ${t.sub}`:t.category}</div></div>
+        <div style={{fontSize:14,fontWeight:600,color:canc?C.faint:(t.type==="entrada"?C.emer:C.coral),flexShrink:0,textDecoration:canc?"line-through":"none"}}>{t.type==="entrada"?"+":"-"}{brl(t.amount)}</div>
         <button onClick={()=>excluirLanc(t.id)} disabled={deleting===t.id} style={{background:"none",border:"none",cursor:"pointer",color:C.faint,padding:4,flexShrink:0}} title="Remover">{deleting===t.id?<Loader2 size={13} className="animate-spin"/>:<Trash2 size={13}/>}</button>
       </div>;})}
     </div>

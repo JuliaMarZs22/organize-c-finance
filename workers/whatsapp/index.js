@@ -81,11 +81,12 @@ async function interpretar(frase, env) {
   const SYSTEM = `Você é o cérebro de um assistente financeiro brasileiro para empreendedores e autônomos.
 Primeiro identifique a INTENÇÃO da mensagem e responda APENAS com JSON, sem markdown.
 
-Formato: {"intencao":"registrar"|"quitar"|"consulta","type":"entrada"|"saida","total":number,"installments":number,"category":string,"subcategoria":string,"desc":string,"pessoa":string,"pendente":number}.
+Formato: {"intencao":"registrar"|"quitar"|"consulta"|"cancelar","type":"entrada"|"saida","total":number,"installments":number,"category":string,"subcategoria":string,"desc":string,"pessoa":string,"pendente":number}.
 
 INTENÇÃO:
 - "registrar": a pessoa está lançando uma entrada ou saída (ex.: "recebi 300 da Grasiele", "investi 200 em tráfego", "paguei 500 pro influencer").
 - "quitar": a pessoa diz que alguém QUITOU/PAGOU o que devia, sem dar valor (ex.: "a Grasiele quitou", "o João me pagou tudo"). Preencha "pessoa", total 0.
+- "cancelar": a pessoa diz que uma venda/compra foi CANCELADA, ESTORNADA ou que houve PEDIDO DE DINHEIRO DE VOLTA/REEMBOLSO (ex.: "a cliente Ana cancelou a compra e quer o dinheiro de volta", "cancelei a compra do notebook", "estornei a venda da harmonização da Grasiele"). Preencha "type" (entrada=venda cancelada, saida=compra cancelada), "pessoa" se houver, "total" o valor se mencionado, "subcategoria"/"desc" o que foi.
 - "consulta": a pessoa está PERGUNTANDO algo sobre as finanças dela (ex.: "quanto vendi esse mês?", "qual procedimento vendeu mais?", "quanto investi em tráfego?", "qual meu lucro?", "como estou?"). Nesse caso só "intencao":"consulta" importa.
 
 Campos para registrar/quitar:
@@ -114,7 +115,7 @@ Campos para registrar/quitar:
 
 // ─── Q&A: responde perguntas financeiras consultando os dados do cliente ───
 async function responderConsulta(pergunta, clienteId, env) {
-  const r = await fetch(`${env.SUPABASE_URL}/rest/v1/lancamentos?cliente_id=eq.${clienteId}&select=tipo,valor,categoria,subcategoria,descricao,pessoa,valor_pendente,data&order=data.desc&limit=400`, {
+  const r = await fetch(`${env.SUPABASE_URL}/rest/v1/lancamentos?cliente_id=eq.${clienteId}&cancelado=eq.false&select=tipo,valor,categoria,subcategoria,descricao,pessoa,valor_pendente,data&order=data.desc&limit=400`, {
     headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
   });
   const rows = await r.json();
@@ -153,11 +154,31 @@ async function responderConsulta(pergunta, clienteId, env) {
 // busca pendências em aberto de uma pessoa (valor_pendente > 0)
 async function buscarPendencias(pessoa, clienteId, env) {
   const q = encodeURIComponent(`*${pessoa}*`);
-  const r = await fetch(`${env.SUPABASE_URL}/rest/v1/lancamentos?cliente_id=eq.${clienteId}&pessoa=ilike.${q}&valor_pendente=gt.0&select=id,descricao,categoria,valor_pendente,pessoa`, {
+  const r = await fetch(`${env.SUPABASE_URL}/rest/v1/lancamentos?cliente_id=eq.${clienteId}&pessoa=ilike.${q}&cancelado=eq.false&valor_pendente=gt.0&select=id,descricao,categoria,valor_pendente,pessoa`, {
     headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
   });
   const rows = await r.json();
   return Array.isArray(rows) ? rows : [];
+}
+
+// busca lançamentos ativos (não cancelados) para cancelar — por pessoa e/ou valor e tipo
+async function buscarParaCancelar({ pessoa, total, type }, clienteId, env) {
+  let url = `${env.SUPABASE_URL}/rest/v1/lancamentos?cliente_id=eq.${clienteId}&cancelado=eq.false&select=id,descricao,categoria,subcategoria,valor,pessoa,tipo&order=data.desc&limit=10`;
+  if (type) url += `&tipo=eq.${type}`;
+  if (pessoa) url += `&pessoa=ilike.${encodeURIComponent(`*${pessoa}*`)}`;
+  if (total) url += `&valor=eq.${Number(total).toFixed(2)}`;
+  const r = await fetch(url, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } });
+  const rows = await r.json();
+  return Array.isArray(rows) ? rows : [];
+}
+
+// marca lançamentos como cancelados (mantém o registro, tira do somatório)
+async function marcarCancelado(ids, env) {
+  await fetch(`${env.SUPABASE_URL}/rest/v1/lancamentos?id=in.(${ids.join(",")})`, {
+    method: "PATCH",
+    headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify({ cancelado: true }),
+  });
 }
 
 // zera o valor_pendente dos lançamentos quitados
@@ -316,6 +337,12 @@ async function processarMensagem(body, env) {
           await enviar(telefone, ok ? `Quitação registrada! ✅ Entrada de ${fmtBRL(pendente.total)} de ${pendente.pessoa}. Conta zerada.` : "Ops, não consegui salvar. Tenta de novo?", env);
           return;
         }
+        if (pendente.tipo === "cancelamento") {
+          await marcarCancelado(pendente.ids, env);
+          await pendDel(env, telefone);
+          await enviar(telefone, `Feito! ✅ ${pendente.label} marcada como *cancelada*. Tirei ${fmtBRL(pendente.total)} do somatório, mas o registro fica no histórico.`, env);
+          return;
+        }
         const linhas = montarLancamentos(pendente, cliente.id);
         const ok = await gravarLancamentos(linhas, env);
         await pendDel(env, telefone);
@@ -334,6 +361,18 @@ async function processarMensagem(body, env) {
     if (p.intencao === "consulta") {
       const resposta = await responderConsulta(texto, cliente.id, env);
       await enviar(telefone, resposta, env);
+      return;
+    }
+
+    // ─── cancelamento/estorno: "a Ana cancelou e quer o dinheiro de volta" ───
+    if (p.intencao === "cancelar") {
+      const achados = await buscarParaCancelar({ pessoa: p.pessoa, total: p.total, type: p.type }, cliente.id, env);
+      if (!achados.length) { await enviar(telefone, `Não achei ${p.type === "saida" ? "uma compra" : "uma venda"} ativa${p.pessoa ? ` de *${p.pessoa}*` : ""}${p.total ? ` de ${fmtBRL(p.total)}` : ""} para cancelar. Pode me dar mais detalhes?`, env); return; }
+      const alvo = achados[0]; // mais recente que casa
+      const valor = Number(alvo.valor);
+      const label = `${alvo.tipo === "entrada" ? "venda" : "compra"} de ${alvo.subcategoria || alvo.descricao || alvo.categoria}${alvo.pessoa ? ` (${alvo.pessoa})` : ""}`;
+      await pendSet(env, telefone, { tipo: "cancelamento", ids: [alvo.id], total: valor, label });
+      await enviar(telefone, `Quer cancelar a *${label}* de ${fmtBRL(valor)}? Vou tirar do somatório, mas manter o registro como cancelada. Confirma? 👍`, env);
       return;
     }
 
