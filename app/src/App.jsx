@@ -411,12 +411,14 @@ function Lista({txs,onDelete,showToast}) {
   const baixarPlanilha=()=>{
     const n=(v)=>Number(v).toFixed(2).replace(".",",");
     const esc=(s)=>`"${String(s??"").replace(/"/g,'""')}"`;
-    const linhas=[["Data","Tipo","Categoria","Descrição","Valor (R$)"]];
-    lista.slice().sort((a,b)=>a.date<b.date?-1:1).forEach((t)=>linhas.push([t.date,t.type==="entrada"?"Entrada":"Saída",t.category,t.desc,n(t.amount)]));
+    const linhas=[["Data","Tipo","Categoria","Descrição","Pessoa","Valor (R$)","Falta receber/pagar (R$)"]];
+    lista.slice().sort((a,b)=>a.date<b.date?-1:1).forEach((t)=>linhas.push([t.date,t.type==="entrada"?"Entrada":"Saída",t.category,t.desc,t.pessoa||"",n(t.amount),t.pendente?n(t.pendente):""]));
+    const totPend=lista.reduce((s,t)=>s+(t.pendente||0),0);
     linhas.push([]);linhas.push(["RESUMO POR CATEGORIA"]);linhas.push(["Categoria","Entradas","Saídas"]);
     resumo.cats.forEach((c)=>linhas.push([c.nome,n(c.entrada||0),n(c.saida||0)]));
     linhas.push([]);linhas.push(["TOTAIS"]);
     linhas.push(["Total entradas",n(resumo.totEnt)]);linhas.push(["Total saídas",n(resumo.totSai)]);linhas.push(["Saldo",n(resumo.saldo)]);
+    if(totPend>0)linhas.push(["Total a receber/pagar (pendente)",n(totPend)]);
     const csv="﻿"+linhas.map((l)=>l.map(esc).join(";")).join("\r\n");
     const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
     const url=URL.createObjectURL(blob);const a=document.createElement("a");
@@ -453,7 +455,7 @@ function Lista({txs,onDelete,showToast}) {
     <div className="flex flex-col">
       {lista.map((t,i)=>{const fut=new Date(t.date+"T12:00:00")>NOW;return<div key={t.id} className="flex items-center gap-3 py-2.5" style={{borderTop:i?`1px solid ${C.border}`:"none"}}>
         <div className="flex items-center justify-center rounded-lg" style={{width:34,height:34,flexShrink:0,background:(t.type==="entrada"?C.emer:C.coral)+"1c"}}>{t.type==="entrada"?<ArrowUpRight size={17} color={C.emer}/>:<ArrowDownRight size={17} color={C.coral}/>}</div>
-        <div className="flex-1" style={{minWidth:0}}><div className="flex items-center gap-2 flex-wrap" style={{fontSize:13.5}}><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.desc}</span>{fut&&<Badge color={C.faint}>previsto</Badge>}{t.parcela&&<Badge color={C.gold}>{t.parcela}</Badge>}</div><div style={{fontSize:11.5,color:C.faint}}>{fmt(t.date)} · {t.category}</div></div>
+        <div className="flex-1" style={{minWidth:0}}><div className="flex items-center gap-2 flex-wrap" style={{fontSize:13.5}}><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.desc}</span>{t.pessoa&&<Badge color={C.muted}>{t.pessoa}</Badge>}{fut&&<Badge color={C.faint}>previsto</Badge>}{t.parcela&&<Badge color={C.gold}>{t.parcela}</Badge>}{t.pendente>0&&<Badge color={C.coral}>falta {brl(t.pendente)}</Badge>}</div><div style={{fontSize:11.5,color:C.faint}}>{fmt(t.date)} · {t.category}</div></div>
         <div style={{fontSize:14,fontWeight:600,color:t.type==="entrada"?C.emer:C.coral,flexShrink:0}}>{t.type==="entrada"?"+":"-"}{brl(t.amount)}</div>
         <button onClick={()=>excluirLanc(t.id)} disabled={deleting===t.id} style={{background:"none",border:"none",cursor:"pointer",color:C.faint,padding:4,flexShrink:0}} title="Remover">{deleting===t.id?<Loader2 size={13} className="animate-spin"/>:<Trash2 size={13}/>}</button>
       </div>;})}
