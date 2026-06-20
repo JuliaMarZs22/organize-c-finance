@@ -366,7 +366,7 @@ async function processarMensagem(body, env) {
     console.log("Cliente encontrado:", cliente ? cliente.id : "NENHUM");
 
     if (!cliente) {
-      await enviar(telefone, "Esse número não está cadastrado no Organize-C Finance. Assine em organize-c.finance 💛", env);
+      await enviar(telefone, "Esse número não está cadastrado no Organize-C Finance. Assine em organize-c.com/finance 💛", env);
       return;
     }
 

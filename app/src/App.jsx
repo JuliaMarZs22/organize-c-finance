@@ -196,7 +196,7 @@ function Login({onLogin}) {
         </div>
         <p style={{fontSize:11.5,color:C.faint,textAlign:"center",marginTop:20,lineHeight:1.6}}>
           Acesso exclusivo para assinantes.<br/>
-          <span style={{color:C.muted}}>Adquira seu acesso em <b style={{color:C.gold}}>organize-c.finance</b></span>
+          <span style={{color:C.muted}}>Adquira seu acesso em <b style={{color:C.gold}}>organize-c.com/finance</b></span>
         </p>
       </div>
     </div>
@@ -434,7 +434,7 @@ function Relatorio({txs,perfil,showToast}) {
       {d.topVenda&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"8px 0",borderTop:`1px solid ${C.border}`}}><span style={{color:C.muted}}>🏆 Mais vendeu</span><span style={{fontWeight:600}}>{d.topVenda[0]}</span></div>}
       {d.topGasto&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"8px 0",borderTop:`1px solid ${C.border}`}}><span style={{color:C.muted}}>💸 Maior gasto</span><span style={{fontWeight:600}}>{d.topGasto[0]}</span></div>}
       <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"8px 0",borderTop:`1px solid ${C.border}`}}><span style={{color:C.muted}}>📌 Lançamentos</span><span style={{fontWeight:600}}>{d.n}</span></div>
-      <div style={{textAlign:"center",fontSize:11,color:C.faint,marginTop:18}}>Organize suas finanças pelo WhatsApp 💛<br/>organize-c.finance</div>
+      <div style={{textAlign:"center",fontSize:11,color:C.faint,marginTop:18}}>Organize suas finanças pelo WhatsApp 💛<br/>organize-c.com/finance</div>
     </div>
     <p style={{fontSize:12.5,color:C.faint,textAlign:"center",maxWidth:380}}>Baixe e compartilhe seu fechamento do mês. 📲 Escolha o mês acima.</p>
   </div>;
