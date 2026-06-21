@@ -175,10 +175,62 @@ async function rotinaVencimentos(env) {
   }
 }
 
+// ── Lembretes pessoais (roda a cada 30 min, horário de Brasília) ──
+async function rotinaLembretes(env) {
+  const agoraUTC = new Date();
+  const brt = new Date(agoraUTC.getTime() - 3 * 3600000); // UTC-3
+  const hh = String(brt.getUTCHours()).padStart(2, "0");
+  const mm = String(brt.getUTCMinutes()).padStart(2, "0");
+  const nowMin = brt.getUTCHours() * 60 + brt.getUTCMinutes();
+  const dataBRT = brt.toISOString().slice(0, 10);
+  const diaSemana = brt.getUTCDay();   // 0=domingo
+  const diaMes = brt.getUTCDate();
+
+  // pega lembretes ativos cujo horário cai na janela [now-30min, now]
+  const r = await fetch(`${env.SUPABASE_URL}/rest/v1/lembretes?ativo=eq.true&select=id,cliente_id,texto,horario,recorrencia,data,dia_semana,dia_mes,ultimo_envio&limit=500`, {
+    headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+  });
+  const lembretes = await r.json();
+  if (!Array.isArray(lembretes)) return;
+
+  // cache de telefone por cliente
+  const fones = {};
+  for (const l of lembretes) {
+    if (l.ultimo_envio === dataBRT) continue; // já enviado hoje
+    const [lh, lm] = (l.horario || "09:00").split(":").map(Number);
+    const lMin = lh * 60 + lm;
+    if (lMin > nowMin || lMin <= nowMin - 30) continue; // fora da janela
+    // recorrência
+    if (l.recorrencia === "once" && l.data !== dataBRT) continue;
+    if (l.recorrencia === "semanal" && Number(l.dia_semana) !== diaSemana) continue;
+    if (l.recorrencia === "mensal" && Number(l.dia_mes) !== diaMes) continue;
+
+    // telefone do cliente
+    if (!(l.cliente_id in fones)) {
+      const cr = await fetch(`${env.SUPABASE_URL}/rest/v1/clientes?id=eq.${l.cliente_id}&status=eq.ativo&select=nome,telefone`, {
+        headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+      });
+      fones[l.cliente_id] = (await cr.json())?.[0] || null;
+    }
+    const cli = fones[l.cliente_id];
+    if (!cli || !cli.telefone) continue;
+    const nome = (cli.nome || "").split(" ")[0] || "tudo bem";
+    const ok = await enviarTemplate(cli.telefone, "lembrete_pessoal", [nome, l.texto], env);
+    if (ok) {
+      await fetch(`${env.SUPABASE_URL}/rest/v1/lembretes?id=eq.${l.id}`, {
+        method: "PATCH",
+        headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+        body: JSON.stringify({ ultimo_envio: dataBRT, ...(l.recorrencia === "once" ? { ativo: false } : {}) }),
+      });
+    }
+  }
+}
+
 export default {
   async scheduled(event, env, ctx) {
     if (event.cron === "0 12 1 * *") ctx.waitUntil(rotinaMensal(env));
     else if (event.cron === "0 11 * * *") ctx.waitUntil(rotinaVencimentos(env));
+    else if (event.cron === "*/30 * * * *") ctx.waitUntil(rotinaLembretes(env));
     else ctx.waitUntil(rotinaSemanal(env));
   },
   // endpoint manual para testar (?rotina=semanal|mensal)
@@ -188,6 +240,7 @@ export default {
     if (rot === "semanal") { await rotinaSemanal(env); return new Response("rotina semanal executada"); }
     if (rot === "mensal") { await rotinaMensal(env); return new Response("rotina mensal executada"); }
     if (rot === "vencimentos") { await rotinaVencimentos(env); return new Response("rotina vencimentos executada"); }
+    if (rot === "lembretes") { await rotinaLembretes(env); return new Response("rotina lembretes executada"); }
     return new Response("Organize-C Finance — worker proativo online");
   },
 };

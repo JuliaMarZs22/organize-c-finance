@@ -83,7 +83,7 @@ async function interpretar(frase, env) {
 HOJE é ${hojeISO}. Use isso para resolver datas relativas.
 Primeiro identifique a INTENÇÃO da mensagem e responda APENAS com JSON, sem markdown.
 
-Formato: {"intencao":"registrar"|"quitar"|"consulta"|"cancelar"|"editar","type":"entrada"|"saida","total":number,"installments":number,"category":string,"subcategoria":string,"desc":string,"pessoa":string,"pendente":number,"data":string,"edit":object}.
+Formato: {"intencao":"registrar"|"quitar"|"consulta"|"cancelar"|"editar"|"lembrete"|"cancelar_lembrete","type":"entrada"|"saida","total":number,"installments":number,"category":string,"subcategoria":string,"desc":string,"pessoa":string,"pendente":number,"data":string,"edit":object,"lembrete":object,"lembrete_busca":string}.
 
 INTENÇÃO:
 - "registrar": a pessoa está lançando uma entrada ou saída (ex.: "recebi 300 da Grasiele", "investi 200 em tráfego", "paguei 500 pro influencer", "recebi meu salário de 3000").
@@ -91,6 +91,8 @@ INTENÇÃO:
 - "cancelar": a pessoa diz que uma venda/compra foi CANCELADA, ESTORNADA ou que houve PEDIDO DE DINHEIRO DE VOLTA/REEMBOLSO. Preencha "type" (entrada=venda cancelada, saida=compra cancelada), "pessoa" se houver, "total" o valor se mencionado.
 - "editar": a pessoa quer CORRIGIR/ALTERAR o ÚLTIMO lançamento (ex.: "não, era 500 não 50", "corrige pra gasolina", "muda a categoria pra saúde", "na verdade foi ontem", "o nome era Ana"). Preencha o objeto "edit" só com os campos a mudar: {"valor":number, "category":string, "subcategoria":string, "desc":string, "pessoa":string, "data":"YYYY-MM-DD", "type":"entrada"|"saida"}. Inclua APENAS os campos que a pessoa pediu para mudar; omita o resto.
 - "consulta": a pessoa está PERGUNTANDO/PEDINDO algo sobre as finanças dela (ex.: "quanto vendi essa semana?", "meu resumo da semana", "qual produto vendeu mais?", "quanto investi em tráfego?", "qual meu lucro?", "como tá meu caixa?", "quem tá me devendo?", "minhas cobranças", "como estou?"). Nesse caso só "intencao":"consulta" importa.
+- "lembrete": a pessoa quer ser LEMBRADA de algo (remédio, tarefa, compromisso, ligar pra alguém, etc.). Ex.: "me lembra de tomar o remédio todo dia às 8h", "me lembra de ligar pro fornecedor amanhã 14h", "todo dia 8h e 20h tomar remédio", "me avisa segunda 9h da reunião". Preencha o objeto "lembrete": {"texto":"o que lembrar (curto)","horario":"HH:MM 24h","recorrencia":"once"|"diario"|"semanal"|"mensal","data":"YYYY-MM-DD se for once/data específica, senão null","dia_semana":0a6 (0=domingo) se semanal senão null,"dia_mes":1a31 se mensal senão null}. Se a pessoa der vários horários, crie um por horário (mas aqui retorne o primeiro; o sistema repete). Se não disser horário, use "09:00".
+- "cancelar_lembrete": a pessoa quer PARAR um lembrete (ex.: "para de me lembrar do remédio", "cancela o lembrete da academia"). Preencha "lembrete_busca" com palavras-chave do lembrete.
 
 Campos para registrar/quitar:
 - "category": bucket amplo. Para VENDAS de serviço/produto use "Vendas". Para SALÁRIO/emprego fixo/renda fixa (quando a pessoa fala "salário", "meu salário", "recebi do trabalho") use "Salário". Para gastos com anúncios/influencer/divulgação use "Marketing". Outras: Alimentação, Moradia, Transporte, Saúde, Assinaturas, Lazer, Pró-labore, Investimento, Equipe, Insumos, Impostos, Outros.
@@ -116,7 +118,7 @@ Campos para registrar/quitar:
   const total = Number(j.total) || 0;
   const installments = Math.max(1, Number(j.installments) || 1);
   const dataOk = /^\d{4}-\d{2}-\d{2}$/.test(j.data || "") ? j.data : hojeISO;
-  return { intencao: j.intencao || "registrar", valid: total > 0, type: j.type === "entrada" ? "entrada" : "saida", total, installments, valorParcela: total / installments, category: j.category || "Outros", subcategoria: (j.subcategoria || "").trim() || null, desc: j.desc || frase.trim(), pessoa: (j.pessoa || "").trim() || null, pendente: Number(j.pendente) > 0 ? Number(j.pendente) : null, data: dataOk, lembrarDiasAntes: Number(j.lembrar_dias_antes) > 0 ? Math.min(30, Number(j.lembrar_dias_antes)) : null, edit: j.edit || null };
+  return { intencao: j.intencao || "registrar", valid: total > 0, type: j.type === "entrada" ? "entrada" : "saida", total, installments, valorParcela: total / installments, category: j.category || "Outros", subcategoria: (j.subcategoria || "").trim() || null, desc: j.desc || frase.trim(), pessoa: (j.pessoa || "").trim() || null, pendente: Number(j.pendente) > 0 ? Number(j.pendente) : null, data: dataOk, lembrarDiasAntes: Number(j.lembrar_dias_antes) > 0 ? Math.min(30, Number(j.lembrar_dias_antes)) : null, edit: j.edit || null, lembrete: j.lembrete || null, lembreteBusca: (j.lembrete_busca || "").trim() || null };
 }
 
 // ─── Q&A: responde perguntas financeiras consultando os dados do cliente ───
@@ -194,6 +196,49 @@ async function buscarPendencias(pessoa, clienteId, env) {
   });
   const rows = await r.json();
   return Array.isArray(rows) ? rows : [];
+}
+
+// ─── LEMBRETES ───
+async function criarLembrete(l, clienteId, env) {
+  const row = {
+    cliente_id: clienteId, texto: l.texto || "lembrete",
+    horario: /^\d{2}:\d{2}$/.test(l.horario || "") ? l.horario : "09:00",
+    recorrencia: ["once", "diario", "semanal", "mensal"].includes(l.recorrencia) ? l.recorrencia : "diario",
+    data: /^\d{4}-\d{2}-\d{2}$/.test(l.data || "") ? l.data : null,
+    dia_semana: Number.isInteger(l.dia_semana) ? l.dia_semana : null,
+    dia_mes: Number.isInteger(l.dia_mes) ? l.dia_mes : null,
+  };
+  const r = await fetch(`${env.SUPABASE_URL}/rest/v1/lembretes`, {
+    method: "POST",
+    headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify(row),
+  });
+  return { ok: r.ok, row };
+}
+async function listarLembretes(clienteId, env) {
+  const r = await fetch(`${env.SUPABASE_URL}/rest/v1/lembretes?cliente_id=eq.${clienteId}&ativo=eq.true&select=id,texto,horario,recorrencia,data,dia_semana,dia_mes&order=horario`, {
+    headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+  });
+  const rows = await r.json();
+  return Array.isArray(rows) ? rows : [];
+}
+async function cancelarLembretes(busca, clienteId, env) {
+  const lista = await listarLembretes(clienteId, env);
+  const alvos = lista.filter((l) => (l.texto || "").toLowerCase().includes((busca || "").toLowerCase()));
+  if (!alvos.length) return 0;
+  await fetch(`${env.SUPABASE_URL}/rest/v1/lembretes?id=in.(${alvos.map((a) => a.id).join(",")})`, {
+    method: "PATCH",
+    headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify({ ativo: false }),
+  });
+  return alvos.length;
+}
+function descreverRecorrencia(l) {
+  const dias = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
+  if (l.recorrencia === "diario") return `todo dia às ${l.horario}`;
+  if (l.recorrencia === "semanal") return `toda ${dias[l.dia_semana] || "semana"} às ${l.horario}`;
+  if (l.recorrencia === "mensal") return `todo dia ${l.dia_mes} às ${l.horario}`;
+  return `${(l.data || "").split("-").reverse().join("/")} às ${l.horario}`;
 }
 
 // busca o último lançamento registrado do cliente (para editar)
@@ -410,13 +455,36 @@ async function processarMensagem(body, env) {
 
     // menu de ajuda (oi, menu, ajuda) — descoberta das funções, sem custo de IA
     if (/^\s*(oi+|ol[áa]|menu|ajuda|help|come[çc]ar|in[íi]cio|comandos|o que (voc[êe]|tu) faz|como funciona)\s*[!?.]*\s*$/i.test(texto)) {
-      await enviar(telefone, `Oi! 👋 Sou seu assistente do *Organize-C Finance*. Comigo você pode, por áudio ou texto:\n\n📥 *Registrar* — "recebi 300 da Ana pela harmonização" / "gastei 50 de gasolina" / "investi 200 em tráfego"\n📅 *Datas* — "ontem", "dia 5/06", "10/07 vou receber 1000"\n✅ *Quitação* — "a Ana quitou"\n❌ *Cancelar* — "a cliente cancelou e quer o dinheiro de volta"\n✏️ *Corrigir* — "era 500, não 50"\n\nE me *perguntar* quando quiser:\n📊 "meu resumo da semana"\n💰 "como tá meu caixa?"\n🔔 "quem tá me devendo?"\n🏆 "qual produto vendeu mais?"\n📈 "qual meu lucro esse mês?"\n\nÉ só mandar! 💛`, env);
+      await enviar(telefone, `Oi! 👋 Sou seu assistente do *Organize-C Finance*. Comigo você pode, por áudio ou texto:\n\n📥 *Registrar* — "recebi 300 da Ana pela harmonização" / "gastei 50 de gasolina" / "investi 200 em tráfego"\n📅 *Datas* — "ontem", "dia 5/06", "10/07 vou receber 1000"\n✅ *Quitação* — "a Ana quitou"\n❌ *Cancelar* — "a cliente cancelou e quer o dinheiro de volta"\n✏️ *Corrigir* — "era 500, não 50"\n\nE me *perguntar* quando quiser:\n📊 "meu resumo da semana"\n💰 "como tá meu caixa?"\n🔔 "quem tá me devendo?"\n🏆 "qual produto vendeu mais?"\n📈 "qual meu lucro esse mês?"\n\n🔔 E posso te *lembrar* de coisas:\n"me lembra de tomar o remédio todo dia às 8h"\n"me lembra de ligar pro fornecedor amanhã 14h"\n("meus lembretes" pra ver / "cancela o lembrete X")\n\nÉ só mandar! 💛`, env);
       return;
     }
 
     console.log("Texto interpretado:", texto);
     const p = await interpretar(texto, env);
     console.log("Resultado IA:", JSON.stringify(p));
+
+    // ─── criar lembrete: "me lembra de tomar remédio todo dia às 8h" ───
+    if (p.intencao === "lembrete" && p.lembrete) {
+      const { ok, row } = await criarLembrete(p.lembrete, cliente.id, env);
+      await enviar(telefone, ok ? `Pronto! 🔔 Vou te lembrar de *${row.texto}* ${descreverRecorrencia(row)}.` : "Ops, não consegui criar o lembrete. Tenta de novo?", env);
+      return;
+    }
+
+    // ─── cancelar lembrete ───
+    if (p.intencao === "cancelar_lembrete") {
+      const n = await cancelarLembretes(p.lembreteBusca || "", cliente.id, env);
+      await enviar(telefone, n > 0 ? `Ok, parei de te lembrar disso (${n} lembrete${n > 1 ? "s" : ""} cancelado${n > 1 ? "s" : ""}). 👍` : "Não achei um lembrete com esse nome. Manda \"meus lembretes\" pra ver os ativos.", env);
+      return;
+    }
+
+    // ─── listar lembretes ───
+    if (/^\s*(meus lembretes|quais.*lembrete|lembretes ativos|ver lembretes)\s*[?!.]*\s*$/i.test(texto)) {
+      const ls = await listarLembretes(cliente.id, env);
+      if (!ls.length) { await enviar(telefone, "Você não tem lembretes ativos. É só me pedir, ex.: \"me lembra de tomar remédio todo dia às 8h\". 🔔", env); return; }
+      const lista = ls.map((l) => `🔔 ${l.texto} — ${descreverRecorrencia(l)}`).join("\n");
+      await enviar(telefone, `Seus lembretes ativos:\n${lista}`, env);
+      return;
+    }
 
     // ─── consulta/pergunta: "quanto vendi esse mês?" ───
     if (p.intencao === "consulta") {
