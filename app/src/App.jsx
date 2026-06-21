@@ -21,11 +21,12 @@ import { sincronizarManual } from "./drive";
 /* ─── PALETA ─────────────────────────────────────────────────────── */
 const C = {
   bg:"#070b14",bg2:"#0b1120",panel:"#0e1525",panel2:"#121a2e",
-  border:"#1c2438",border2:"#27314c",gold:"#e9cd88",goldDeep:"#c0a366",
-  emer:"#2ed6a0",emerDeep:"#1d8a6f",coral:"#e0857a",
+  border:"#1c2438",border2:"#27314c",
+  gold:"#1fdd8e",goldDeep:"#16a86a",        // "primário" agora é o verde da marca
+  emer:"#1fdd8e",emerDeep:"#16a86a",coral:"#e0857a",
   text:"#eef1f6",muted:"#9aa3bb",faint:"#7e87a0",
 };
-const serif = "'Cormorant Garamond', Georgia, serif";
+const serif = "'DM Sans', system-ui, -apple-system, sans-serif"; // tipografia bold do site (sem serifada)
 const sans  = "'DM Sans', system-ui, sans-serif";
 
 /* ─── HELPERS ─────────────────────────────────────────────────────── */
@@ -57,9 +58,15 @@ function useToast() {
   return[show,node];
 }
 function Stat({icon:Icon,label,value,sub,accent}) {
-  return <Panel><div className="flex items-center gap-2 mb-2" style={{color:C.faint,fontSize:12}}><Icon size={14} color={accent}/> {label}</div><div style={{fontFamily:serif,fontSize:26,fontWeight:600,color:accent||C.text,lineHeight:1}}>{value}</div>{sub&&<div className="mt-2" style={{fontSize:11.5,color:C.faint}}>{sub}</div>}</Panel>;
+  return <Panel><div className="flex items-center gap-2 mb-2" style={{color:C.faint,fontSize:12}}><Icon size={14} color={accent}/> {label}</div><div style={{fontFamily:sans,fontSize:27,fontWeight:700,letterSpacing:"-0.02em",color:accent||C.text,lineHeight:1}}>{value}</div>{sub&&<div className="mt-2" style={{fontSize:11.5,color:C.faint}}>{sub}</div>}</Panel>;
 }
-const Brand=({size=17})=><div className="flex items-baseline gap-2"><span style={{fontSize:size*.82,fontWeight:500,color:"#c2c9da"}}>organize-c</span><span style={{fontFamily:serif,fontSize:size*1.25,color:C.gold,lineHeight:1}}>finance</span></div>;
+const Brand=({size=17})=><div className="flex items-center gap-2.5">
+  <img src="/logo.png" alt="" style={{width:size*1.55,height:size*1.55,borderRadius:size*0.4,flexShrink:0}}/>
+  <div className="flex items-baseline gap-1.5">
+    <span style={{fontSize:size*0.92,fontWeight:500,color:"#c2c9da"}}>organize-c</span>
+    <span style={{fontSize:size*0.92,fontWeight:700,color:C.emer,letterSpacing:"-0.01em"}}>finance</span>
+  </div>
+</div>;
 
 /* ─── APP ROOT ────────────────────────────────────────────────────── */
 export default function App() {
@@ -119,7 +126,7 @@ function NovaSenha({onDone}) {
       <div className="flex justify-center mb-7"><Brand size={26}/></div>
       <div className="rounded-3xl p-7" style={{background:C.panel,border:`1px solid ${C.border2}`}}>
         <div style={{height:3,background:C.gold,borderRadius:99,width:46,margin:"0 auto 22px"}}/>
-        <h1 style={{fontFamily:serif,fontSize:27,fontWeight:600,textAlign:"center",marginBottom:6}}>Defina sua senha</h1>
+        <h1 style={{fontFamily:sans,fontSize:28,fontWeight:700,letterSpacing:"-0.02em",textAlign:"center",marginBottom:6}}>Defina sua senha</h1>
         <p style={{fontSize:13.5,color:C.muted,textAlign:"center",marginBottom:24}}>Crie a senha de acesso ao seu painel</p>
         <div className="flex flex-col gap-3">
           <div style={{position:"relative"}}>
@@ -177,7 +184,7 @@ function Login({onLogin}) {
       <div className="flex justify-center mb-7"><Brand size={26}/></div>
       <div className="rounded-3xl p-7" style={{background:C.panel,border:`1px solid ${C.border2}`}}>
         <div style={{height:3,background:C.gold,borderRadius:99,width:46,margin:"0 auto 22px"}}/>
-        <h1 style={{fontFamily:serif,fontSize:27,fontWeight:600,textAlign:"center",marginBottom:6}}>Bem-vindo de volta</h1>
+        <h1 style={{fontFamily:sans,fontSize:28,fontWeight:700,letterSpacing:"-0.02em",textAlign:"center",marginBottom:6}}>Bem-vindo de volta</h1>
         <p style={{fontSize:13.5,color:C.muted,textAlign:"center",marginBottom:24}}>Acesse seu painel financeiro</p>
         <div className="flex flex-col gap-3">
           <div style={{position:"relative"}}>
