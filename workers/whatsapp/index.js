@@ -99,7 +99,8 @@ Campos para registrar/quitar:
 - "pessoa": nome de quem pagou/recebeu, se houver. Senão "".
 - "pendente": valor que ainda falta receber/pagar dessa transação, se mencionado. Senão 0.
 - "total": valor movimentado agora. Se for consulta ou não houver valor, 0.
-- "data": data do lançamento no formato YYYY-MM-DD. Resolva relativo a HOJE (${hojeISO}): "ontem", "anteontem", "dia 5", "5 de junho", "semana passada", "10/07", "dia 10 do mês que vem", etc. Funciona para datas PASSADAS e FUTURAS. Se a pessoa não disser data, use ${hojeISO}.`;
+- "data": data do lançamento no formato YYYY-MM-DD. Resolva relativo a HOJE (${hojeISO}): "ontem", "anteontem", "dia 5", "5 de junho", "semana passada", "10/07", "dia 10 do mês que vem", etc. Funciona para datas PASSADAS e FUTURAS. Se a pessoa não disser data, use ${hojeISO}.
+- "lembrar_dias_antes": se a pessoa pedir um lembrete com antecedência específica (ex.: "me lembra 3 dias antes", "me avisa com 2 dias de antecedência"), coloque esse número (3, 2...). Senão 0.`;
 
   const r = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -115,7 +116,7 @@ Campos para registrar/quitar:
   const total = Number(j.total) || 0;
   const installments = Math.max(1, Number(j.installments) || 1);
   const dataOk = /^\d{4}-\d{2}-\d{2}$/.test(j.data || "") ? j.data : hojeISO;
-  return { intencao: j.intencao || "registrar", valid: total > 0, type: j.type === "entrada" ? "entrada" : "saida", total, installments, valorParcela: total / installments, category: j.category || "Outros", subcategoria: (j.subcategoria || "").trim() || null, desc: j.desc || frase.trim(), pessoa: (j.pessoa || "").trim() || null, pendente: Number(j.pendente) > 0 ? Number(j.pendente) : null, data: dataOk, edit: j.edit || null };
+  return { intencao: j.intencao || "registrar", valid: total > 0, type: j.type === "entrada" ? "entrada" : "saida", total, installments, valorParcela: total / installments, category: j.category || "Outros", subcategoria: (j.subcategoria || "").trim() || null, desc: j.desc || frase.trim(), pessoa: (j.pessoa || "").trim() || null, pendente: Number(j.pendente) > 0 ? Number(j.pendente) : null, data: dataOk, lembrarDiasAntes: Number(j.lembrar_dias_antes) > 0 ? Math.min(30, Number(j.lembrar_dias_antes)) : null, edit: j.edit || null };
 }
 
 // ─── Q&A: responde perguntas financeiras consultando os dados do cliente ───
@@ -261,6 +262,7 @@ function montarLancamentos(p, clienteId) {
       parcela_total: p.installments > 1 ? p.installments : null,
       pessoa: p.pessoa || null,
       valor_pendente: i === 0 ? (p.pendente || null) : null,
+      lembrar_dias_antes: p.lembrarDiasAntes || null,
       origem: "whatsapp",
     });
   }

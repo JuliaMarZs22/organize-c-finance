@@ -43,7 +43,7 @@ async function clientesAtivos(env) {
 }
 
 async function lancamentosCliente(clienteId, env) {
-  const r = await fetch(`${env.SUPABASE_URL}/rest/v1/lancamentos?cliente_id=eq.${clienteId}&cancelado=eq.false&select=tipo,valor,categoria,subcategoria,pessoa,valor_pendente,data,fixa&limit=600`, {
+  const r = await fetch(`${env.SUPABASE_URL}/rest/v1/lancamentos?cliente_id=eq.${clienteId}&cancelado=eq.false&select=tipo,valor,categoria,subcategoria,descricao,pessoa,valor_pendente,data,fixa,lembrar_dias_antes&limit=600`, {
     headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
   });
   const rows = await r.json();
@@ -127,9 +127,36 @@ async function rotinaMensal(env) {
   }
 }
 
+// ── Alerta de vencimentos (diário) — contas a pagar e a receber a vencer ──
+async function rotinaVencimentos(env) {
+  const clientes = await clientesAtivos(env);
+  const hoje = hojeISO();
+  for (const c of clientes) {
+    const nome = (c.nome || "").split(" ")[0] || "tudo bem";
+    const lancs = await lancamentosCliente(c.id, env);
+    // itens FUTUROS (data > hoje), não cancelados; antecedência padrão 1 dia (ou lembrar_dias_antes)
+    const avisos = [];
+    for (const t of lancs) {
+      if (!t.data || t.data <= hoje) continue;
+      const dias = Math.round((new Date(t.data + "T12:00:00") - new Date(hoje + "T12:00:00")) / 86400000);
+      const antec = Number(t.lembrar_dias_antes) > 0 ? Number(t.lembrar_dias_antes) : 1;
+      if (dias !== antec) continue;
+      const quando = dias === 1 ? "amanhã" : `em ${dias} dias`;
+      const oque = t.subcategoria || t.descricao || t.categoria;
+      if (t.tipo === "saida") avisos.push(`• ${oque} — ${fmt(t.valor)} (vence ${quando})`);
+      else avisos.push(`• Receber ${fmt(t.valor)}${t.pessoa ? " de " + t.pessoa : ""} — ${oque} (${quando})`);
+    }
+    if (avisos.length) {
+      const msg = `Lembrete de vencimentos:\n${avisos.join("\n")}`;
+      await enviarTemplate(c.telefone, "alerta_caixa", [nome, msg, PAINEL(env)], env);
+    }
+  }
+}
+
 export default {
   async scheduled(event, env, ctx) {
     if (event.cron === "0 12 1 * *") ctx.waitUntil(rotinaMensal(env));
+    else if (event.cron === "0 11 * * *") ctx.waitUntil(rotinaVencimentos(env));
     else ctx.waitUntil(rotinaSemanal(env));
   },
   // endpoint manual para testar (?rotina=semanal|mensal)
@@ -138,6 +165,7 @@ export default {
     const rot = url.searchParams.get("rotina");
     if (rot === "semanal") { await rotinaSemanal(env); return new Response("rotina semanal executada"); }
     if (rot === "mensal") { await rotinaMensal(env); return new Response("rotina mensal executada"); }
+    if (rot === "vencimentos") { await rotinaVencimentos(env); return new Response("rotina vencimentos executada"); }
     return new Response("Organize-C Finance — worker proativo online");
   },
 };
