@@ -67,13 +67,13 @@ export async function salvarMeta(mes, faturamento, lucro) {
 }
 export async function carregarDespesasFixas() {
   const { data, error } = await supabase
-    .from("despesas_fixas").select("id, nome, valor, ativa").eq("ativa", true).order("nome");
+    .from("despesas_fixas").select("id, nome, valor, ativa, dia_vencimento").eq("ativa", true).order("nome");
   return { despesas: data || [], error };
 }
-export async function inserirDespesaFixa(nome, valor) {
+export async function inserirDespesaFixa(nome, valor, diaVencimento) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: new Error("Usuário não autenticado") };
-  const { error } = await supabase.from("despesas_fixas").insert({ nome, valor, cliente_id: user.id });
+  const { error } = await supabase.from("despesas_fixas").insert({ nome, valor, dia_vencimento: diaVencimento || null, cliente_id: user.id });
   return { error };
 }
 export async function excluirDespesaFixa(id) {

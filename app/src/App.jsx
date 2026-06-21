@@ -333,9 +333,9 @@ function Visao({calc,perfil,despesas,onUpdate,showToast}) {
 
 /* ─── DESPESAS FIXAS ──────────────────────────────────────────────── */
 function DespesasFixas({despesas,onUpdate,showToast}) {
-  const[nome,setNome]=useState("");const[valor,setValor]=useState("");const[load,setLoad]=useState(false);const[deleting,setDeleting]=useState(null);
+  const[nome,setNome]=useState("");const[valor,setValor]=useState("");const[dia,setDia]=useState("");const[load,setLoad]=useState(false);const[deleting,setDeleting]=useState(null);
   const field={background:C.panel2,border:`1px solid ${C.border}`,color:C.text,fontSize:13,borderRadius:8,padding:"9px 11px",outline:"none"};
-  const adicionar=async()=>{const v=parseBRL(valor);if(!nome.trim())return showToast("Digite o nome.","error");if(isNaN(v)||v<=0)return showToast("Digite um valor válido.","error");setLoad(true);const{error}=await inserirDespesaFixa(nome.trim(),v);setLoad(false);if(error)return showToast("Erro ao adicionar.","error");setNome("");setValor("");showToast("Despesa adicionada!");onUpdate();};
+  const adicionar=async()=>{const v=parseBRL(valor);if(!nome.trim())return showToast("Digite o nome.","error");if(isNaN(v)||v<=0)return showToast("Digite um valor válido.","error");const dv=dia?Math.max(1,Math.min(31,Number(dia))):null;setLoad(true);const{error}=await inserirDespesaFixa(nome.trim(),v,dv);setLoad(false);if(error)return showToast("Erro ao adicionar.","error");setNome("");setValor("");setDia("");showToast("Despesa adicionada!");onUpdate();};
   const excluir=async(id)=>{setDeleting(id);const{error}=await excluirDespesaFixa(id);setDeleting(null);if(error)return showToast("Erro ao remover.","error");showToast("Despesa removida.");onUpdate();};
   const total=despesas.reduce((s,d)=>s+Number(d.valor),0);
   return <div className="grid gap-4" style={{gridTemplateColumns:"minmax(0,520px)",justifyContent:"center"}}>
@@ -346,10 +346,12 @@ function DespesasFixas({despesas,onUpdate,showToast}) {
         <input value={nome} onChange={(e)=>setNome(e.target.value)} placeholder="Nome (ex: Aluguel)" onKeyDown={(e)=>e.key==="Enter"&&adicionar()} style={{...field,width:"100%"}}/>
         <div className="flex gap-2">
           <input value={valor} onChange={(e)=>setValor(e.target.value)} placeholder="Valor (R$)" inputMode="decimal" onKeyDown={(e)=>e.key==="Enter"&&adicionar()} style={{...field,flex:1}}/>
+          <input value={dia} onChange={(e)=>setDia(e.target.value)} placeholder="Dia venc." inputMode="numeric" type="number" min={1} max={31} onKeyDown={(e)=>e.key==="Enter"&&adicionar()} style={{...field,width:90}} title="Dia do mês em que vence (opcional)"/>
           <button onClick={adicionar} disabled={load} className="rounded-lg px-4 flex items-center gap-2" style={{background:C.gold,color:"#16213a",fontSize:13,fontWeight:600,whiteSpace:"nowrap",cursor:load?"not-allowed":"pointer"}}>{load?<Loader2 size={15} className="animate-spin"/>:<><Plus size={15}/> Adicionar</>}</button>
         </div>
+        <p style={{fontSize:11,color:C.faint}}>Dia de vencimento é opcional — preencha para receber um lembrete na véspera. 🔔</p>
       </div>
-      {despesas.length===0?<div style={{fontSize:13,color:C.faint,padding:"12px 0"}}>Nenhuma despesa fixa cadastrada.</div>:despesas.map((d,i)=><div key={d.id} className="flex items-center justify-between py-2.5 gap-3" style={{borderTop:i?`1px solid ${C.border}`:"none"}}><span style={{fontSize:13,flex:1}}>{d.nome}</span><span style={{fontSize:13,color:C.coral,fontWeight:600}}>{brl(d.valor)}</span><button onClick={()=>excluir(d.id)} disabled={deleting===d.id} style={{background:"none",border:"none",cursor:"pointer",color:C.faint,padding:4}}>{deleting===d.id?<Loader2 size={14} className="animate-spin"/>:<Trash2 size={15}/>}</button></div>)}
+      {despesas.length===0?<div style={{fontSize:13,color:C.faint,padding:"12px 0"}}>Nenhuma despesa fixa cadastrada.</div>:despesas.map((d,i)=><div key={d.id} className="flex items-center justify-between py-2.5 gap-3" style={{borderTop:i?`1px solid ${C.border}`:"none"}}><div style={{flex:1}}><span style={{fontSize:13}}>{d.nome}</span>{d.dia_vencimento&&<span style={{fontSize:11,color:C.faint,marginLeft:8}}>vence dia {d.dia_vencimento}</span>}</div><span style={{fontSize:13,color:C.coral,fontWeight:600}}>{brl(d.valor)}</span><button onClick={()=>excluir(d.id)} disabled={deleting===d.id} style={{background:"none",border:"none",cursor:"pointer",color:C.faint,padding:4}}>{deleting===d.id?<Loader2 size={14} className="animate-spin"/>:<Trash2 size={15}/>}</button></div>)}
       {despesas.length>0&&<div className="flex justify-between pt-2 mt-1" style={{fontSize:13,fontWeight:600,borderTop:`1px solid ${C.border2}`}}><span>Total mensal</span><span style={{color:C.coral}}>{brl(total)}</span></div>}
     </Panel>
   </div>;

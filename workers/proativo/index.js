@@ -146,6 +146,16 @@ async function rotinaVencimentos(env) {
       if (t.tipo === "saida") avisos.push(`• ${oque} — ${fmt(t.valor)} (vence ${quando})`);
       else avisos.push(`• Receber ${fmt(t.valor)}${t.pessoa ? " de " + t.pessoa : ""} — ${oque} (${quando})`);
     }
+    // despesas fixas com dia de vencimento (avisa na véspera)
+    const amanha = new Date(new Date(hoje + "T12:00:00").getTime() + 86400000);
+    const diaAmanha = amanha.getDate();
+    const dfr = await fetch(`${env.SUPABASE_URL}/rest/v1/despesas_fixas?cliente_id=eq.${c.id}&ativa=eq.true&dia_vencimento=not.is.null&select=nome,valor,dia_vencimento`, {
+      headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+    });
+    for (const df of (await dfr.json() || [])) {
+      if (Number(df.dia_vencimento) === diaAmanha) avisos.push(`• ${df.nome} — ${fmt(df.valor)} (vence amanhã)`);
+    }
+
     if (avisos.length) {
       const msg = `Lembrete de vencimentos:\n${avisos.join("\n")}`;
       await enviarTemplate(c.telefone, "alerta_caixa", [nome, msg, PAINEL(env)], env);
