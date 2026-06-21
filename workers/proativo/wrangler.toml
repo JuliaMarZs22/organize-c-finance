@@ -9,5 +9,9 @@ crons = ["0 12 * * 1", "0 12 1 * *", "0 11 * * *"]
 GRAPH_VERSION = "v21.0"
 PAINEL_URL    = "https://organize-c-finance.pages.dev"
 
+[[kv_namespaces]]
+binding = "ENVIADOS"
+id = "c61c0cb1de8f46a68f99a6d0ae28e4e4"
+
 # Secrets (wrangler secret put):
 # WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID, SUPABASE_URL, SUPABASE_SERVICE_KEY

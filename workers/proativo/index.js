@@ -16,6 +16,15 @@ function variacoesTelefone(tel) {
   return [...set];
 }
 
+// trava anti-duplicado: garante 1 envio por cliente/rotina/dia mesmo se o cron disparar 2x
+async function jaEnviadoHoje(env, rotina, clienteId) {
+  if (!env.ENVIADOS) return false;
+  const key = `${rotina}:${clienteId}:${hojeISO()}`;
+  if (await env.ENVIADOS.get(key)) return true;
+  await env.ENVIADOS.put(key, "1", { expirationTtl: 129600 }); // 36h
+  return false;
+}
+
 async function enviarTemplate(to, templateName, params, env) {
   const body = {
     messaging_product: "whatsapp", to, type: "template",
@@ -80,6 +89,7 @@ async function rotinaSemanal(env) {
   const clientes = await clientesAtivos(env);
   const de = isoAdd(-7), ate = hojeISO();
   for (const c of clientes) {
+    if (await jaEnviadoHoje(env, "semanal", c.id)) continue;
     const nome = (c.nome || "").split(" ")[0] || "tudo bem";
     const lancs = await lancamentosCliente(c.id, env);
 
@@ -117,6 +127,7 @@ async function rotinaMensal(env) {
   const de = ini.toISOString().slice(0, 10);
   const ate = new Date(primeiroDesteMes.getTime() - 86400000).toISOString().slice(0, 10);
   for (const c of clientes) {
+    if (await jaEnviadoHoje(env, "mensal", c.id)) continue;
     const nome = (c.nome || "").split(" ")[0] || "tudo bem";
     const lancs = await lancamentosCliente(c.id, env);
     const r = resumir(lancs, de, ate);
@@ -132,6 +143,7 @@ async function rotinaVencimentos(env) {
   const clientes = await clientesAtivos(env);
   const hoje = hojeISO();
   for (const c of clientes) {
+    if (await jaEnviadoHoje(env, "vencimentos", c.id)) continue;
     const nome = (c.nome || "").split(" ")[0] || "tudo bem";
     const lancs = await lancamentosCliente(c.id, env);
     // itens FUTUROS (data > hoje), não cancelados; antecedência padrão 1 dia (ou lembrar_dias_antes)
@@ -143,8 +155,8 @@ async function rotinaVencimentos(env) {
       if (dias !== antec) continue;
       const quando = dias === 1 ? "amanhã" : `em ${dias} dias`;
       const oque = t.subcategoria || t.descricao || t.categoria;
-      if (t.tipo === "saida") avisos.push(`• ${oque} — ${fmt(t.valor)} (vence ${quando})`);
-      else avisos.push(`• Receber ${fmt(t.valor)}${t.pessoa ? " de " + t.pessoa : ""} — ${oque} (${quando})`);
+      if (t.tipo === "saida") avisos.push(`${oque} ${fmt(t.valor)} (vence ${quando})`);
+      else avisos.push(`receber ${fmt(t.valor)}${t.pessoa ? " de " + t.pessoa : ""} (${quando})`);
     }
     // despesas fixas com dia de vencimento (avisa na véspera)
     const amanha = new Date(new Date(hoje + "T12:00:00").getTime() + 86400000);
@@ -153,11 +165,11 @@ async function rotinaVencimentos(env) {
       headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
     });
     for (const df of (await dfr.json() || [])) {
-      if (Number(df.dia_vencimento) === diaAmanha) avisos.push(`• ${df.nome} — ${fmt(df.valor)} (vence amanhã)`);
+      if (Number(df.dia_vencimento) === diaAmanha) avisos.push(`${df.nome} ${fmt(df.valor)} (vence amanhã)`);
     }
 
     if (avisos.length) {
-      const msg = `Lembrete de vencimentos:\n${avisos.join("\n")}`;
+      const msg = `Vencimentos próximos: ${avisos.join("; ")}.`;
       await enviarTemplate(c.telefone, "alerta_caixa", [nome, msg, PAINEL(env)], env);
     }
   }
