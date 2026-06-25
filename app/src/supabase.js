@@ -44,6 +44,22 @@ export async function renomearPessoa(antigo, novo) {
   const { error } = await supabase.from("lancamentos").update({ pessoa: novo }).eq("pessoa", antigo);
   return { error };
 }
+// ajusta o total pendente (a receber/a pagar) de uma pessoa para um novo valor
+export async function ajustarPendentePessoa(pessoa, tipo, novoTotal) {
+  const { data } = await supabase.from("lancamentos")
+    .select("id, valor_pendente").eq("pessoa", pessoa).eq("tipo", tipo).gt("valor_pendente", 0)
+    .order("data", { ascending: false });
+  const rows = data || [];
+  if (!rows.length) {
+    const { data: d2 } = await supabase.from("lancamentos").select("id").eq("pessoa", pessoa).eq("tipo", tipo).order("data", { ascending: false }).limit(1);
+    if (d2 && d2[0]) return await supabase.from("lancamentos").update({ valor_pendente: novoTotal || null }).eq("id", d2[0].id);
+    return { error: null };
+  }
+  const old = rows.reduce((s, r) => s + Number(r.valor_pendente), 0);
+  const novoPrimeiro = Math.max(0, Number(rows[0].valor_pendente) + (novoTotal - old));
+  const { error } = await supabase.from("lancamentos").update({ valor_pendente: novoPrimeiro || null }).eq("id", rows[0].id);
+  return { error };
+}
 export async function editarLancamento(id, campos) {
   const { error } = await supabase.from("lancamentos").update(campos).eq("id", id);
   return { error };
