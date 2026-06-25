@@ -256,15 +256,17 @@ function Client({user,logout}) {
     const NOW=today();const cur=mk(NOW);const realized=(d)=>new Date(d+"T12:00:00")<=NOW;
     const ativos=txs.filter((t)=>!t.cancelado); // cancelados não entram no somatório
     let entradasMes=0,saidasMes=0,proLabore=0,investido=0;const catMap={};
-    const vendaSubMap={},investSubMap={};
+    const vendaSubMap={},investSubMap={};const negMap={};
     ativos.forEach((t)=>{
       if(mk(new Date(t.date+"T12:00:00"))===cur){
+        if(t.negocio){if(!negMap[t.negocio])negMap[t.negocio]={entrada:0,saida:0};negMap[t.negocio][t.type]+=t.amount;}
         if(t.type==="entrada"){entradasMes+=t.amount;const k=t.sub||t.category;vendaSubMap[k]=(vendaSubMap[k]||0)+t.amount;}
         else{saidasMes+=t.amount;if(t.category==="Pró-labore")proLabore+=t.amount;else if(t.category==="Investimento")investido+=t.amount;const gk=t.sub||t.category;catMap[gk]=(catMap[gk]||0)+t.amount;if(t.category==="Marketing"||t.category==="Investimento"){const k=t.sub||t.category;investSubMap[k]=(investSubMap[k]||0)+t.amount;}}
       }
     });
     const vendaSub=Object.entries(vendaSubMap).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
     const investSub=Object.entries(investSubMap).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
+    const negocios=Object.entries(negMap).map(([name,v])=>({name,entrada:v.entrada,saida:v.saida,lucro:v.entrada-v.saida})).sort((a,b)=>b.entrada-a.entrada);
     const rE=ativos.filter((t)=>t.type==="entrada"&&realized(t.date)).reduce((s,t)=>s+t.amount,0);
     const rS=ativos.filter((t)=>t.type==="saida"&&realized(t.date)).reduce((s,t)=>s+t.amount,0);
     const caixa=Number(perfil?.saldo_inicial||0)+rE-rS;
@@ -277,7 +279,7 @@ function Client({user,logout}) {
     const coberto=caixa+prox.entrada>=totalFixo+reserva;
     const lucro=entradasMes-(saidasMes-proLabore-investido);
     const cats=Object.entries(catMap).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
-    return{caixa,entradasMes,saidasMes,fixa:totalFixo,reserva,mesesReserva,proj,prox,podeGastar,coberto,proLabore,investido,lucro,cats,vendaSub,investSub};
+    return{caixa,entradasMes,saidasMes,fixa:totalFixo,reserva,mesesReserva,proj,prox,podeGastar,coberto,proLabore,investido,lucro,cats,vendaSub,investSub,negocios};
   },[txs,perfil,despesas]);
 
   if(load)return<Centro><Loader2 size={26} color={C.gold} className="animate-spin"/></Centro>;
@@ -340,33 +342,38 @@ function Visao({calc,perfil,despesas,onUpdate,showToast}) {
 
 /* ─── DESPESAS FIXAS ──────────────────────────────────────────────── */
 function DespesasFixas({despesas,onUpdate,showToast}) {
-  const[nome,setNome]=useState("");const[valor,setValor]=useState("");const[dia,setDia]=useState("");const[load,setLoad]=useState(false);const[deleting,setDeleting]=useState(null);
+  const[nome,setNome]=useState("");const[valor,setValor]=useState("");const[dia,setDia]=useState("");const[tipo,setTipo]=useState("pj");const[load,setLoad]=useState(false);const[deleting,setDeleting]=useState(null);
   const field={background:C.panel2,border:`1px solid ${C.border}`,color:C.text,fontSize:13,borderRadius:8,padding:"9px 11px",outline:"none"};
-  const adicionar=async()=>{const v=parseBRL(valor);if(!nome.trim())return showToast("Digite o nome.","error");if(isNaN(v)||v<=0)return showToast("Digite um valor válido.","error");const dv=dia?Math.max(1,Math.min(31,Number(dia))):null;setLoad(true);const{error}=await inserirDespesaFixa(nome.trim(),v,dv);setLoad(false);if(error)return showToast("Erro ao adicionar.","error");setNome("");setValor("");setDia("");showToast("Despesa adicionada!");onUpdate();};
+  const adicionar=async()=>{const v=parseBRL(valor);if(!nome.trim())return showToast("Digite o nome.","error");if(isNaN(v)||v<=0)return showToast("Digite um valor válido.","error");const dv=dia?Math.max(1,Math.min(31,Number(dia))):null;setLoad(true);const{error}=await inserirDespesaFixa(nome.trim(),v,dv,tipo);setLoad(false);if(error)return showToast("Erro ao adicionar.","error");setNome("");setValor("");setDia("");showToast("Despesa adicionada!");onUpdate();};
   const excluir=async(id)=>{setDeleting(id);const{error}=await excluirDespesaFixa(id);setDeleting(null);if(error)return showToast("Erro ao remover.","error");showToast("Despesa removida.");onUpdate();};
-  const total=despesas.reduce((s,d)=>s+Number(d.valor),0);
+  const pj=despesas.filter((d)=>(d.tipo||"pj")==="pj");const pf=despesas.filter((d)=>(d.tipo||"pj")==="pf");
+  const totPj=pj.reduce((s,d)=>s+Number(d.valor),0);const totPf=pf.reduce((s,d)=>s+Number(d.valor),0);
+  const Linha=(d,i)=><div key={d.id} className="flex items-center justify-between py-2.5 gap-3" style={{borderTop:i?`1px solid ${C.border}`:"none"}}><div style={{flex:1}}><span style={{fontSize:13}}>{d.nome}</span>{d.dia_vencimento&&<span style={{fontSize:11,color:C.faint,marginLeft:8}}>vence dia {d.dia_vencimento}</span>}</div><span style={{fontSize:13,color:C.coral,fontWeight:600}}>{brl(d.valor)}</span><button onClick={()=>excluir(d.id)} disabled={deleting===d.id} style={{background:"none",border:"none",cursor:"pointer",color:C.faint,padding:4}}>{deleting===d.id?<Loader2 size={14} className="animate-spin"/>:<Trash2 size={15}/>}</button></div>;
+  const Grupo=({titulo,itens,total})=>itens.length?<Panel><div className="flex items-center justify-between mb-1"><div style={{fontSize:13,fontWeight:600}}>{titulo}</div><div style={{fontSize:13,fontWeight:600,color:C.coral}}>{brl(total)}</div></div>{itens.map(Linha)}</Panel>:null;
   return <div className="grid gap-4" style={{gridTemplateColumns:"minmax(0,520px)",justifyContent:"center"}}>
     <Panel>
       <div className="flex items-center gap-2 mb-1" style={{fontSize:14,fontWeight:600}}><Settings size={16} color={C.gold}/> Despesas fixas</div>
-      <p style={{fontSize:12.5,color:C.muted,marginBottom:16}}>Aluguel, internet, assinaturas — tudo que sai todo mês. Alimenta a projeção de caixa e o cálculo de reserva.</p>
+      <p style={{fontSize:12.5,color:C.muted,marginBottom:16}}>Separe o que é da <b style={{color:C.text}}>empresa (PJ)</b> e o que é <b style={{color:C.text}}>pessoal (PF)</b> — assim você vê o custo real de cada lado.</p>
       <div className="flex flex-col gap-2 mb-4">
+        <div className="flex gap-1.5">{[["pj","🏢 Empresa (PJ)"],["pf","👤 Pessoal (PF)"]].map(([k,l])=><button key={k} onClick={()=>setTipo(k)} className="flex-1 rounded-lg py-2" style={{fontSize:12.5,fontWeight:600,cursor:"pointer",background:tipo===k?C.emer+"22":C.panel2,color:tipo===k?C.emer:C.muted,border:`1px solid ${tipo===k?C.emer+"66":C.border}`}}>{l}</button>)}</div>
         <input value={nome} onChange={(e)=>setNome(e.target.value)} placeholder="Nome (ex: Aluguel)" onKeyDown={(e)=>e.key==="Enter"&&adicionar()} style={{...field,width:"100%"}}/>
         <div className="flex gap-2">
           <input value={valor} onChange={(e)=>setValor(e.target.value)} placeholder="Valor (R$)" inputMode="decimal" onKeyDown={(e)=>e.key==="Enter"&&adicionar()} style={{...field,flex:1}}/>
           <input value={dia} onChange={(e)=>setDia(e.target.value)} placeholder="Dia venc." inputMode="numeric" type="number" min={1} max={31} onKeyDown={(e)=>e.key==="Enter"&&adicionar()} style={{...field,width:90}} title="Dia do mês em que vence (opcional)"/>
           <button onClick={adicionar} disabled={load} className="rounded-lg px-4 flex items-center gap-2" style={{background:C.gold,color:"#16213a",fontSize:13,fontWeight:600,whiteSpace:"nowrap",cursor:load?"not-allowed":"pointer"}}>{load?<Loader2 size={15} className="animate-spin"/>:<><Plus size={15}/> Adicionar</>}</button>
         </div>
-        <p style={{fontSize:11,color:C.faint}}>Dia de vencimento é opcional — preencha para receber um lembrete na véspera. 🔔</p>
+        <p style={{fontSize:11,color:C.faint}}>Dia de vencimento é opcional — preenche pra receber lembrete na véspera. 🔔</p>
       </div>
-      {despesas.length===0?<div style={{fontSize:13,color:C.faint,padding:"12px 0"}}>Nenhuma despesa fixa cadastrada.</div>:despesas.map((d,i)=><div key={d.id} className="flex items-center justify-between py-2.5 gap-3" style={{borderTop:i?`1px solid ${C.border}`:"none"}}><div style={{flex:1}}><span style={{fontSize:13}}>{d.nome}</span>{d.dia_vencimento&&<span style={{fontSize:11,color:C.faint,marginLeft:8}}>vence dia {d.dia_vencimento}</span>}</div><span style={{fontSize:13,color:C.coral,fontWeight:600}}>{brl(d.valor)}</span><button onClick={()=>excluir(d.id)} disabled={deleting===d.id} style={{background:"none",border:"none",cursor:"pointer",color:C.faint,padding:4}}>{deleting===d.id?<Loader2 size={14} className="animate-spin"/>:<Trash2 size={15}/>}</button></div>)}
-      {despesas.length>0&&<div className="flex justify-between pt-2 mt-1" style={{fontSize:13,fontWeight:600,borderTop:`1px solid ${C.border2}`}}><span>Total mensal</span><span style={{color:C.coral}}>{brl(total)}</span></div>}
+      {despesas.length===0&&<div style={{fontSize:13,color:C.faint,padding:"12px 0"}}>Nenhuma despesa fixa cadastrada.</div>}
     </Panel>
+    <Grupo titulo="🏢 Custo fixo da empresa (PJ)" itens={pj} total={totPj}/>
+    <Grupo titulo="👤 Custo fixo pessoal (PF)" itens={pf} total={totPf}/>
   </div>;
 }
 
 /* ─── LANÇAR ──────────────────────────────────────────────────────── */
 function Lancar({user,onAdd,showToast}) {
-  const[type,setType]=useState("saida");const[amt,setAmt]=useState("");const[cat,setCat]=useState("Alimentação");const[sub,setSub]=useState("");const[desc,setDesc]=useState("");const[inst,setInst]=useState(1);const[load,setLoad]=useState(false);
+  const[type,setType]=useState("saida");const[amt,setAmt]=useState("");const[cat,setCat]=useState("Alimentação");const[sub,setSub]=useState("");const[negocio,setNegocio]=useState("");const[desc,setDesc]=useState("");const[inst,setInst]=useState(1);const[load,setLoad]=useState(false);
   const[dataLanc,setDataLanc]=useState(()=>{const n=today();return mk(n)+"-"+String(Math.min(n.getDate(),28)).padStart(2,"0");});
   const CATS_SAIDA=["Alimentação","Moradia","Transporte","Assinaturas","Lazer","Saúde","Marketing","Equipe","Insumos","Impostos","Pró-labore","Investimento","Outros"];
   const CATS_ENTRADA=["Vendas","Salário","Pró-labore","Investimento","Outros"];
@@ -378,11 +385,11 @@ function Lancar({user,onAdd,showToast}) {
     const tot=parseBRL(amt);if(isNaN(tot)||tot<=0)return showToast("Digite um valor válido.","error");
     const n=Math.max(1,Math.min(36,Number(inst)));const valor=Number((tot/n).toFixed(2));const linhas=[];
     const grupoParcela=n>1?crypto.randomUUID():null;const baseDate=new Date(dataLanc+"T12:00:00");
-    for(let i=0;i<n;i++){const d=addMonths(baseDate,i);linhas.push({tipo:type,valor,categoria:cat,subcategoria:sub.trim()||null,descricao:n>1?`${desc||sub||cat} — parcela ${i+1}/${n}`:(desc||sub||cat),data:mk(d)+"-"+String(Math.min(d.getDate(),28)).padStart(2,"0"),fixa:false,grupo_parcela:grupoParcela,parcela_atual:n>1?i+1:null,parcela_total:n>1?n:null});}
+    for(let i=0;i<n;i++){const d=addMonths(baseDate,i);linhas.push({tipo:type,valor,categoria:cat,subcategoria:sub.trim()||null,negocio:negocio.trim()||null,descricao:n>1?`${desc||sub||cat} — parcela ${i+1}/${n}`:(desc||sub||cat),data:mk(d)+"-"+String(Math.min(d.getDate(),28)).padStart(2,"0"),fixa:false,grupo_parcela:grupoParcela,parcela_atual:n>1?i+1:null,parcela_total:n>1?n:null});}
     setLoad(true);const{error}=await inserirLancamentos(linhas,user.id);
     if(error){setLoad(false);return showToast("Erro ao salvar.","error");}
     try{const{data:{session}}=await supabase.auth.getSession();if(session?.access_token)await sincronizarManual(session.access_token,linhas.map((l)=>({data:l.data,tipo:l.tipo,categoria:l.categoria,descricao:l.descricao,valor:l.valor})));}catch(_){}
-    setLoad(false);setAmt("");setSub("");setDesc("");setInst(1);showToast(n>1?`${n} parcelas lançadas!`:"Lançamento salvo!");onAdd();
+    setLoad(false);setAmt("");setSub("");setNegocio("");setDesc("");setInst(1);showToast(n>1?`${n} parcelas lançadas!`:"Lançamento salvo!");onAdd();
   };
   return <div className="grid gap-4" style={{gridTemplateColumns:"minmax(0,460px)",justifyContent:"center"}}>
     <Panel>
@@ -393,6 +400,7 @@ function Lancar({user,onAdd,showToast}) {
         <div><input value={amt} onChange={(e)=>setAmt(e.target.value)} placeholder="Valor (R$)" inputMode="decimal" style={field}/>{previewValor()&&<div style={{fontSize:11.5,color:C.gold,marginTop:4}}>{previewValor()}</div>}</div>
         <select value={cat} onChange={(e)=>setCat(e.target.value)} style={{...field,appearance:"none"}}>{cats.map((c)=><option key={c} value={c} style={{background:C.panel2}}>{c}</option>)}</select>
         <input value={sub} onChange={(e)=>setSub(e.target.value)} placeholder={type==="entrada"?"Produto/Serviço (ex: Harmonização facial)":"Detalhe (ex: Tráfego pago, Influencer)"} style={field}/>
+        <input value={negocio} onChange={(e)=>setNegocio(e.target.value)} placeholder="Negócio (ex: Clínica, Loja) — opcional" style={field}/>
         <input value={desc} onChange={(e)=>setDesc(e.target.value)} placeholder="Descrição (opcional)" style={field}/>
         <div><div style={{fontSize:11.5,color:C.faint,marginBottom:4}}>Data</div><input type="date" value={dataLanc} onChange={(e)=>setDataLanc(e.target.value)} style={{...field,colorScheme:"dark"}}/></div>
         <div className="flex items-center gap-2"><span style={{fontSize:12.5,color:C.muted,whiteSpace:"nowrap"}}>{type==="saida"?"Parcelas:":"Recebimentos futuros:"}</span><input value={inst} onChange={(e)=>setInst(Math.max(1,Math.min(36,Number(e.target.value))))} type="number" min={1} max={36} style={{...field,width:70}}/></div>
@@ -519,8 +527,8 @@ function Lista({txs,onDelete,showToast}) {
   const baixarPlanilha=()=>{
     const n=(v)=>Number(v).toFixed(2).replace(".",",");
     const esc=(s)=>`"${String(s??"").replace(/"/g,'""')}"`;
-    const linhas=[["Data","Tipo","Categoria","Produto/Serviço","Descrição","Pessoa","Status","Valor (R$)","Falta receber/pagar (R$)"]];
-    lista.slice().sort((a,b)=>a.date<b.date?-1:1).forEach((t)=>linhas.push([t.date,t.type==="entrada"?"Entrada":"Saída",t.category,t.sub||"",t.desc,t.pessoa||"",t.cancelado?"CANCELADA":"OK",n(t.amount),t.pendente?n(t.pendente):""]));
+    const linhas=[["Data","Tipo","Categoria","Produto/Serviço","Negócio","Descrição","Pessoa","Status","Valor (R$)","Falta receber/pagar (R$)"]];
+    lista.slice().sort((a,b)=>a.date<b.date?-1:1).forEach((t)=>linhas.push([t.date,t.type==="entrada"?"Entrada":"Saída",t.category,t.sub||"",t.negocio||"",t.desc,t.pessoa||"",t.cancelado?"CANCELADA":"OK",n(t.amount),t.pendente?n(t.pendente):""]));
     const totPend=lista.filter((t)=>!t.cancelado).reduce((s,t)=>s+(t.pendente||0),0);
     linhas.push([]);linhas.push(["RESUMO POR CATEGORIA"]);linhas.push(["Categoria","Entradas","Saídas"]);
     resumo.cats.forEach((c)=>linhas.push([c.nome,n(c.entrada||0),n(c.saida||0)]));
@@ -563,7 +571,7 @@ function Lista({txs,onDelete,showToast}) {
     <div className="flex flex-col">
       {lista.map((t,i)=>{const fut=new Date(t.date+"T12:00:00")>NOW;const canc=t.cancelado;return<div key={t.id} className="flex items-center gap-3 py-2.5" style={{borderTop:i?`1px solid ${C.border}`:"none",opacity:canc?0.55:1}}>
         <div className="flex items-center justify-center rounded-lg" style={{width:34,height:34,flexShrink:0,background:(canc?C.faint:(t.type==="entrada"?C.emer:C.coral))+"1c"}}>{t.type==="entrada"?<ArrowUpRight size={17} color={canc?C.faint:C.emer}/>:<ArrowDownRight size={17} color={canc?C.faint:C.coral}/>}</div>
-        <div className="flex-1" style={{minWidth:0}}><div className="flex items-center gap-2 flex-wrap" style={{fontSize:13.5}}><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:canc?"line-through":"none"}}>{t.desc}</span>{canc&&<Badge color={C.coral}>cancelada</Badge>}{t.pessoa&&<Badge color={C.muted}>{t.pessoa}</Badge>}{fut&&!canc&&<Badge color={C.faint}>previsto</Badge>}{t.parcela&&<Badge color={C.gold}>{t.parcela}</Badge>}{t.pendente>0&&!canc&&<Badge color={C.coral}>falta {brl(t.pendente)}</Badge>}</div><div style={{fontSize:11.5,color:C.faint}}>{fmt(t.date)} · {t.sub?`${t.category} · ${t.sub}`:t.category}</div></div>
+        <div className="flex-1" style={{minWidth:0}}><div className="flex items-center gap-2 flex-wrap" style={{fontSize:13.5}}><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:canc?"line-through":"none"}}>{t.desc}</span>{canc&&<Badge color={C.coral}>cancelada</Badge>}{t.pessoa&&<Badge color={C.muted}>{t.pessoa}</Badge>}{fut&&!canc&&<Badge color={C.faint}>previsto</Badge>}{t.parcela&&<Badge color={C.gold}>{t.parcela}</Badge>}{t.pendente>0&&!canc&&<Badge color={C.coral}>falta {brl(t.pendente)}</Badge>}</div><div style={{fontSize:11.5,color:C.faint}}>{fmt(t.date)} · {t.sub?`${t.category} · ${t.sub}`:t.category}{t.negocio?` · ${t.negocio}`:""}</div></div>
         <div style={{fontSize:14,fontWeight:600,color:canc?C.faint:(t.type==="entrada"?C.emer:C.coral),flexShrink:0,textDecoration:canc?"line-through":"none"}}>{t.type==="entrada"?"+":"-"}{brl(t.amount)}</div>
         <button onClick={()=>setEditTx(t)} style={{background:"none",border:"none",cursor:"pointer",color:C.faint,padding:4,flexShrink:0}} title="Editar"><Settings size={13}/></button>
         <button onClick={()=>excluirLanc(t.id)} disabled={deleting===t.id} style={{background:"none",border:"none",cursor:"pointer",color:C.faint,padding:4,flexShrink:0}} title="Remover">{deleting===t.id?<Loader2 size={13} className="animate-spin"/>:<Trash2 size={13}/>}</button>
@@ -589,7 +597,7 @@ function Lista({txs,onDelete,showToast}) {
 /* ─── EDITAR LANÇAMENTO (modal) ───────────────────────────────────── */
 function EditarLancamento({tx,onClose,onSaved,showToast}) {
   const[type,setType]=useState(tx.type);const[amt,setAmt]=useState(String(tx.amount).replace(".",","));
-  const[cat,setCat]=useState(tx.category);const[sub,setSub]=useState(tx.sub||"");const[desc,setDesc]=useState(tx.desc||"");
+  const[cat,setCat]=useState(tx.category);const[sub,setSub]=useState(tx.sub||"");const[negocio,setNegocio]=useState(tx.negocio||"");const[desc,setDesc]=useState(tx.desc||"");
   const[pessoa,setPessoa]=useState(tx.pessoa||"");const[data,setData]=useState(tx.date);const[load,setLoad]=useState(false);
   const CATS_SAIDA=["Alimentação","Moradia","Transporte","Saúde","Assinaturas","Lazer","Marketing","Equipe","Insumos","Impostos","Pró-labore","Investimento","Outros"];
   const CATS_ENTRADA=["Vendas","Salário","Pró-labore","Investimento","Outros"];
@@ -598,7 +606,7 @@ function EditarLancamento({tx,onClose,onSaved,showToast}) {
   const salvar=async()=>{
     const v=parseBRL(amt);if(isNaN(v)||v<=0)return showToast("Valor inválido","error");
     setLoad(true);
-    const{error}=await editarLancamento(tx.id,{tipo:type,valor:v,categoria:cat,subcategoria:sub.trim()||null,descricao:desc.trim()||sub.trim()||cat,pessoa:pessoa.trim()||null,data});
+    const{error}=await editarLancamento(tx.id,{tipo:type,valor:v,categoria:cat,subcategoria:sub.trim()||null,negocio:negocio.trim()||null,descricao:desc.trim()||sub.trim()||cat,pessoa:pessoa.trim()||null,data});
     setLoad(false);
     if(error)return showToast("Erro ao salvar","error");
     showToast("Lançamento atualizado!");onSaved();
@@ -611,6 +619,7 @@ function EditarLancamento({tx,onClose,onSaved,showToast}) {
         <input value={amt} onChange={(e)=>setAmt(e.target.value)} placeholder="Valor (R$)" inputMode="decimal" style={field}/>
         <select value={cat} onChange={(e)=>setCat(e.target.value)} style={{...field,appearance:"none"}}>{cats.map((c)=><option key={c} value={c} style={{background:C.panel2}}>{c}</option>)}</select>
         <input value={sub} onChange={(e)=>setSub(e.target.value)} placeholder="Produto/Item (ex: Gasolina, Harmonização)" style={field}/>
+        <input value={negocio} onChange={(e)=>setNegocio(e.target.value)} placeholder="Negócio (ex: Clínica) — opcional" style={field}/>
         <input value={desc} onChange={(e)=>setDesc(e.target.value)} placeholder="Descrição" style={field}/>
         <input value={pessoa} onChange={(e)=>setPessoa(e.target.value)} placeholder="Pessoa (opcional)" style={field}/>
         <div><div style={{fontSize:11.5,color:C.faint,marginBottom:4}}>Data</div><input type="date" value={data} onChange={(e)=>setData(e.target.value)} style={{...field,colorScheme:"dark"}}/></div>
@@ -711,6 +720,19 @@ function Negocio({calc,meta,mes,onMeta,showToast,perfil}) {
         :<div style={{width:"100%",height:240}}><ResponsiveContainer><ComposedChart data={calc.proj} margin={{top:10,right:8,left:-8,bottom:0}}><CartesianGrid stroke={C.border} vertical={false}/><XAxis dataKey="label" tick={{fill:C.muted,fontSize:12}} axisLine={{stroke:C.border}} tickLine={false}/><YAxis tick={{fill:C.faint,fontSize:11}} axisLine={false} tickLine={false} tickFormatter={(v)=>`${(v/1000).toFixed(0)}k`}/><Tooltip formatter={(v,n)=>[brl(v),n]} contentStyle={{background:C.panel2,border:`1px solid ${C.border2}`,borderRadius:10,color:C.text,fontSize:12}}/><Legend wrapperStyle={{fontSize:12,color:C.muted}}/><Bar dataKey="entrada" name="Entrada prevista" fill={C.emer} radius={[4,4,0,0]} barSize={18}/><Bar dataKey="fixa" name="Despesa fixa" fill={C.coral} radius={[4,4,0,0]} barSize={18}/><Line dataKey="caixaFim" name="Caixa no fim do mês" stroke={C.gold} strokeWidth={2.5} dot={{r:3,fill:C.gold}}/></ComposedChart></ResponsiveContainer></div>
       }
     </Panel>
+    {/* POR NEGÓCIO (só aparece se houver lançamentos com negócio) */}
+    {calc.negocios.length>0&&<Panel>
+      <div className="flex items-center gap-2 mb-1" style={{fontSize:14,fontWeight:500}}><Briefcase size={15} color={C.emer}/> Por negócio <span style={{fontSize:11,color:C.faint}}>· este mês</span></div>
+      <p style={{fontSize:11.5,color:C.faint,marginBottom:12}}>Faturamento, custo e lucro de cada negócio seu.</p>
+      <div className="grid gap-3" style={{gridTemplateColumns:"repeat(auto-fit, minmax(220px, 1fr))"}}>
+        {calc.negocios.map((n)=><div key={n.name} className="p-3 rounded-xl" style={{background:C.panel2,border:`1px solid ${C.border}`}}>
+          <div style={{fontSize:13.5,fontWeight:600,marginBottom:8}}>{n.name}</div>
+          <div className="flex justify-between" style={{fontSize:12,marginBottom:3}}><span style={{color:C.faint}}>Entrou</span><span style={{color:C.emer}}>{brl(n.entrada)}</span></div>
+          <div className="flex justify-between" style={{fontSize:12,marginBottom:3}}><span style={{color:C.faint}}>Saiu</span><span style={{color:C.coral}}>{brl(n.saida)}</span></div>
+          <div className="flex justify-between pt-2 mt-1" style={{fontSize:13,fontWeight:600,borderTop:`1px solid ${C.border}`}}><span>Lucro</span><span style={{color:n.lucro>=0?C.gold:C.coral}}>{brl(n.lucro)}</span></div>
+        </div>)}
+      </div>
+    </Panel>}
     {/* RANKINGS por produto/serviço e canal de investimento (mês atual) */}
     <div className="grid gap-4" style={{gridTemplateColumns:"repeat(auto-fit, minmax(280px, 1fr))"}}>
       <Panel>

@@ -30,11 +30,11 @@ export async function meuPerfil() {
 export async function carregarLancamentos() {
   const { data, error } = await supabase
     .from("lancamentos")
-    .select("id, tipo, valor, categoria, subcategoria, descricao, data, fixa, parcela_atual, parcela_total, pessoa, valor_pendente, cancelado")
+    .select("id, tipo, valor, categoria, subcategoria, negocio, descricao, data, fixa, parcela_atual, parcela_total, pessoa, valor_pendente, cancelado")
     .order("data", { ascending: false });
   const txs = (data || []).map((r) => ({
     id: r.id, type: r.tipo, amount: Number(r.valor),
-    category: r.categoria, sub: r.subcategoria || "", desc: r.descricao, date: r.data, fixa: r.fixa,
+    category: r.categoria, sub: r.subcategoria || "", negocio: r.negocio || "", desc: r.descricao, date: r.data, fixa: r.fixa,
     pessoa: r.pessoa || "", pendente: r.valor_pendente ? Number(r.valor_pendente) : 0, cancelado: !!r.cancelado,
     parcela: r.parcela_total ? `${r.parcela_atual}/${r.parcela_total}` : undefined,
   }));
@@ -67,13 +67,13 @@ export async function salvarMeta(mes, faturamento, lucro) {
 }
 export async function carregarDespesasFixas() {
   const { data, error } = await supabase
-    .from("despesas_fixas").select("id, nome, valor, ativa, dia_vencimento").eq("ativa", true).order("nome");
+    .from("despesas_fixas").select("id, nome, valor, ativa, dia_vencimento, tipo").eq("ativa", true).order("nome");
   return { despesas: data || [], error };
 }
-export async function inserirDespesaFixa(nome, valor, diaVencimento) {
+export async function inserirDespesaFixa(nome, valor, diaVencimento, tipo) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: new Error("Usuário não autenticado") };
-  const { error } = await supabase.from("despesas_fixas").insert({ nome, valor, dia_vencimento: diaVencimento || null, cliente_id: user.id });
+  const { error } = await supabase.from("despesas_fixas").insert({ nome, valor, dia_vencimento: diaVencimento || null, tipo: tipo || "pj", cliente_id: user.id });
   return { error };
 }
 export async function excluirDespesaFixa(id) {

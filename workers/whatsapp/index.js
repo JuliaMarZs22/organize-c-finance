@@ -83,7 +83,7 @@ async function interpretar(frase, env) {
 HOJE é ${hojeISO}. Use isso para resolver datas relativas.
 Primeiro identifique a INTENÇÃO da mensagem e responda APENAS com JSON, sem markdown.
 
-Formato: {"intencao":"registrar"|"quitar"|"consulta"|"cancelar"|"editar"|"lembrete"|"cancelar_lembrete","type":"entrada"|"saida","total":number,"installments":number,"category":string,"subcategoria":string,"desc":string,"pessoa":string,"pendente":number,"data":string,"edit":object,"lembrete":object,"lembrete_busca":string}.
+Formato: {"intencao":"registrar"|"quitar"|"consulta"|"cancelar"|"editar"|"lembrete"|"cancelar_lembrete","type":"entrada"|"saida","total":number,"installments":number,"category":string,"subcategoria":string,"negocio":string,"desc":string,"pessoa":string,"pendente":number,"data":string,"edit":object,"lembrete":object,"lembrete_busca":string}.
 
 INTENÇÃO:
 - "registrar": a pessoa está lançando uma entrada ou saída (ex.: "recebi 300 da Grasiele", "investi 200 em tráfego", "paguei 500 pro influencer", "recebi meu salário de 3000").
@@ -97,6 +97,7 @@ INTENÇÃO:
 Campos para registrar/quitar:
 - "category": bucket amplo. Para VENDAS de serviço/produto use "Vendas". Para SALÁRIO/emprego fixo/renda fixa (quando a pessoa fala "salário", "meu salário", "recebi do trabalho") use "Salário". Para gastos com anúncios/influencer/divulgação use "Marketing". Outras: Alimentação, Moradia, Transporte, Saúde, Assinaturas, Lazer, Pró-labore, Investimento, Equipe, Insumos, Impostos, Outros.
 - "subcategoria": SEMPRE preencha com o item EXATO que a pessoa falou, do jeito dela (ex.: "Gasolina", "Remédio dipirona", "Uber", "Mercado", "Harmonização facial", "Tráfego pago", "Influencer"). NÃO generalize: "gasolina" é "Gasolina" (não "Transporte"); "remédio X" é "Remédio X" (não "Saúde"). A categoria é só o balde amplo; a subcategoria é o que importa pro cliente. Só deixe "" se realmente não der pra identificar o item.
+- "negocio": o NEGÓCIO/empresa a que esse lançamento pertence, se a pessoa mencionar (ex.: "vendi 500 na clínica" => "Clínica"; "gastei 200 na loja" => "Loja"; "tráfego do organize-c" => "Organize-C"). Empreendedores têm vários negócios. Se não mencionar nenhum negócio, "".
 - "desc": descrição curta e fiel do que foi.
 - "pessoa": nome de quem pagou/recebeu, se houver. Senão "".
 - "pendente": valor que ainda falta receber/pagar dessa transação, se mencionado. Senão 0.
@@ -118,12 +119,12 @@ Campos para registrar/quitar:
   const total = Number(j.total) || 0;
   const installments = Math.max(1, Number(j.installments) || 1);
   const dataOk = /^\d{4}-\d{2}-\d{2}$/.test(j.data || "") ? j.data : hojeISO;
-  return { intencao: j.intencao || "registrar", valid: total > 0, type: j.type === "entrada" ? "entrada" : "saida", total, installments, valorParcela: total / installments, category: j.category || "Outros", subcategoria: (j.subcategoria || "").trim() || null, desc: j.desc || frase.trim(), pessoa: (j.pessoa || "").trim() || null, pendente: Number(j.pendente) > 0 ? Number(j.pendente) : null, data: dataOk, lembrarDiasAntes: Number(j.lembrar_dias_antes) > 0 ? Math.min(30, Number(j.lembrar_dias_antes)) : null, edit: j.edit || null, lembrete: j.lembrete || null, lembreteBusca: (j.lembrete_busca || "").trim() || null };
+  return { intencao: j.intencao || "registrar", valid: total > 0, type: j.type === "entrada" ? "entrada" : "saida", total, installments, valorParcela: total / installments, category: j.category || "Outros", subcategoria: (j.subcategoria || "").trim() || null, negocio: (j.negocio || "").trim() || null, desc: j.desc || frase.trim(), pessoa: (j.pessoa || "").trim() || null, pendente: Number(j.pendente) > 0 ? Number(j.pendente) : null, data: dataOk, lembrarDiasAntes: Number(j.lembrar_dias_antes) > 0 ? Math.min(30, Number(j.lembrar_dias_antes)) : null, edit: j.edit || null, lembrete: j.lembrete || null, lembreteBusca: (j.lembrete_busca || "").trim() || null };
 }
 
 // ─── Q&A: responde perguntas financeiras consultando os dados do cliente ───
 async function responderConsulta(pergunta, clienteId, env) {
-  const r = await fetch(`${env.SUPABASE_URL}/rest/v1/lancamentos?cliente_id=eq.${clienteId}&cancelado=eq.false&select=tipo,valor,categoria,subcategoria,descricao,pessoa,valor_pendente,data&order=data.desc&limit=400`, {
+  const r = await fetch(`${env.SUPABASE_URL}/rest/v1/lancamentos?cliente_id=eq.${clienteId}&cancelado=eq.false&select=tipo,valor,categoria,subcategoria,negocio,descricao,pessoa,valor_pendente,data&order=data.desc&limit=400`, {
     headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
   });
   const rows = await r.json();
@@ -146,7 +147,7 @@ async function responderConsulta(pergunta, clienteId, env) {
 
   const hoje = new Date(); const hojeI = hoje.toISOString().slice(0, 10); const mesAtual = hojeI.slice(0, 7);
   const seteDias = new Date(hoje.getTime() - 7 * 86400000).toISOString().slice(0, 10);
-  const resumo = { hoje: hojeI, mesAtual, custoFixo, totalEntradas: 0, totalSaidas: 0, entradasMes: 0, saidasMes: 0, entradasSemana: 0, saidasSemana: 0, caixaAtual: saldoInicial, porSubcategoria: {}, porCategoria: {}, pendentes: [] };
+  const resumo = { hoje: hojeI, mesAtual, custoFixo, totalEntradas: 0, totalSaidas: 0, entradasMes: 0, saidasMes: 0, entradasSemana: 0, saidasSemana: 0, caixaAtual: saldoInicial, porSubcategoria: {}, porCategoria: {}, porNegocio: {}, pendentes: [] };
   for (const t of rows) {
     const v = Number(t.valor); const noMes = (t.data || "").slice(0, 7) === mesAtual; const naSemana = (t.data || "") >= seteDias && (t.data || "") <= hojeI; const realizado = (t.data || "") <= hojeI;
     if (t.tipo === "entrada") { resumo.totalEntradas += v; if (noMes) resumo.entradasMes += v; if (naSemana) resumo.entradasSemana += v; if (realizado) resumo.caixaAtual += v; }
@@ -155,6 +156,7 @@ async function responderConsulta(pergunta, clienteId, env) {
     resumo.porSubcategoria[sk] = (resumo.porSubcategoria[sk] || 0) + v;
     const ck = `${t.tipo}:${t.categoria || "Outros"}`;
     resumo.porCategoria[ck] = (resumo.porCategoria[ck] || 0) + v;
+    if (t.negocio) { const nk = `${t.tipo}:${t.negocio}`; resumo.porNegocio[nk] = (resumo.porNegocio[nk] || 0) + v; }
     if (Number(t.valor_pendente) > 0) resumo.pendentes.push({ pessoa: t.pessoa, desc: t.descricao, pendente: Number(t.valor_pendente) });
   }
   resumo.lucroTotal = resumo.totalEntradas - resumo.totalSaidas;
@@ -170,6 +172,7 @@ Os dados trazem: caixaAtual, custoFixo (mensal), entradas/saídas/lucro do mês 
 - Se perguntarem da "semana": use entradasSemana/saidasSemana/lucroSemana.
 - Se perguntarem "quem me deve / cobranças": liste os pendentes (pessoa + valor) e o totalAReceber.
 - Se perguntarem o que mais vendeu: use porSubcategoria (entrada).
+- Se a pessoa tiver vários negócios e perguntar por um ("quanto vendi na clínica?", "lucro da loja"): use porNegocio (formato "tipo:Negocio").
 - Se houver metaFaturamento/metaLucro > 0 e perguntarem da "meta": compare com entradasMes/lucroMes, diga o % atingido e quanto falta.
 - Se houver impostoPct > 0 e perguntarem de imposto/reserva: diga para reservar reservaImpostoSugerida (impostoPct% do que entrou no mês). Se prolaboreAlvo > 0 e perguntarem de pró-labore/retirada: informe o alvo e quanto já foi retirado.
 Sempre que fizer sentido, dê 1 conselho prático (capacidade de investir, onde cortar, cobrar quem deve). Formate como R$ 1.234,56. Não invente números. Use *negrito* do WhatsApp.`;
@@ -300,6 +303,7 @@ function montarLancamentos(p, clienteId) {
       valor: Number(p.valorParcela.toFixed(2)),
       categoria: p.category,
       subcategoria: p.subcategoria || null,
+      negocio: p.negocio || null,
       descricao: p.installments > 1 ? `${p.desc} — parcela ${i + 1}/${p.installments}` : p.desc,
       data: d.toISOString().slice(0, 10), fixa: false,
       grupo_parcela: grupoParcela,
@@ -319,7 +323,8 @@ function textoConfirmacao(p) {
   const cat = p.subcategoria ? `${p.subcategoria}` : p.category;
   const hojeISO = new Date().toISOString().slice(0, 10);
   const dataTxt = p.data && p.data !== hojeISO ? ` em ${p.data.split("-").reverse().join("/")}` : "";
-  const extra = `${p.pessoa ? ` (${p.pessoa})` : ""}${p.pendente ? ` — falta receber ${fmt(p.pendente)}` : ""}`;
+  const negTxt = p.negocio ? ` · ${p.negocio}` : "";
+  const extra = `${p.pessoa ? ` (${p.pessoa})` : ""}${negTxt}${p.pendente ? ` — falta receber ${fmt(p.pendente)}` : ""}`;
   if (p.installments > 1) return `Anotei: *${p.installments} entradas de ${fmt(p.valorParcela)}*, uma por mês, em ${cat}${extra}. Confirma? 👍`;
   return `Registrei: *${p.type === "entrada" ? "Entrada" : "Saída"} de ${fmt(p.total)}*${dataTxt} em ${cat}${extra}. Confirma? 👍`;
 }
