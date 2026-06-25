@@ -83,7 +83,7 @@ async function interpretar(frase, env) {
 HOJE é ${hojeISO}. Use isso para resolver datas relativas.
 Primeiro identifique a INTENÇÃO da mensagem e responda APENAS com JSON, sem markdown.
 
-Formato: {"intencao":"registrar"|"quitar"|"consulta"|"cancelar"|"editar"|"lembrete"|"cancelar_lembrete","type":"entrada"|"saida","total":number,"installments":number,"category":string,"subcategoria":string,"negocio":string,"desc":string,"pessoa":string,"pendente":number,"data":string,"edit":object,"lembrete":object,"lembrete_busca":string}.
+Formato: {"intencao":"registrar"|"quitar"|"consulta"|"cancelar"|"editar"|"lembrete"|"cancelar_lembrete"|"emprestimo","type":"entrada"|"saida","total":number,"installments":number,"category":string,"subcategoria":string,"negocio":string,"desc":string,"pessoa":string,"pendente":number,"data":string,"edit":object,"lembrete":object,"lembrete_busca":string,"emprestimo":object}.
 
 INTENÇÃO:
 - "registrar": a pessoa está lançando uma entrada ou saída (ex.: "recebi 300 da Grasiele", "investi 200 em tráfego", "paguei 500 pro influencer", "recebi meu salário de 3000").
@@ -93,6 +93,7 @@ INTENÇÃO:
 - "consulta": a pessoa está PERGUNTANDO/PEDINDO algo sobre as finanças dela (ex.: "quanto vendi essa semana?", "meu resumo da semana", "qual produto vendeu mais?", "quanto investi em tráfego?", "qual meu lucro?", "como tá meu caixa?", "quem tá me devendo?", "minhas cobranças", "como estou?"). Nesse caso só "intencao":"consulta" importa.
 - "lembrete": a pessoa quer ser LEMBRADA de algo (remédio, tarefa, compromisso, ligar pra alguém, etc.). Ex.: "me lembra de tomar o remédio todo dia às 8h", "me lembra de ligar pro fornecedor amanhã 14h", "todo dia 8h e 20h tomar remédio", "me avisa segunda 9h da reunião". Preencha o objeto "lembrete": {"texto":"o que lembrar (curto)","horario":"HH:MM 24h","recorrencia":"once"|"diario"|"semanal"|"mensal","data":"YYYY-MM-DD se for once/data específica, senão null","dia_semana":0a6 (0=domingo) se semanal senão null,"dia_mes":1a31 se mensal senão null}. Se a pessoa der vários horários, crie um por horário (mas aqui retorne o primeiro; o sistema repete). Se não disser horário, use "09:00".
 - "cancelar_lembrete": a pessoa quer PARAR um lembrete (ex.: "para de me lembrar do remédio", "cancela o lembrete da academia"). Preencha "lembrete_busca" com palavras-chave do lembrete.
+- "emprestimo": a pessoa pegou um EMPRÉSTIMO/FINANCIAMENTO ou parcelou para ter dinheiro (ex.: "peguei 4647 emprestado no cartão e vou pagar 5x de 1000", "fiz um empréstimo de 10 mil, 10 parcelas de 1200", "antecipei recebíveis"). Preencha "emprestimo": {"recebido":number (quanto ENTROU no caixa agora),"parcelas":number,"valorParcela":number (valor de CADA parcela a pagar),"desc":"origem (ex: Cartão de crédito, Banco X)"}. Se a pessoa der o total a pagar em vez do valor da parcela, calcule valorParcela = total/parcelas.
 
 Campos para registrar/quitar:
 - "category": bucket amplo. Para VENDAS de serviço/produto use "Vendas". Para SALÁRIO/emprego fixo/renda fixa (quando a pessoa fala "salário", "meu salário", "recebi do trabalho") use "Salário". Para gastos com anúncios/influencer/divulgação use "Marketing". Outras: Alimentação, Moradia, Transporte, Saúde, Assinaturas, Lazer, Pró-labore, Investimento, Equipe, Insumos, Impostos, Outros.
@@ -119,7 +120,7 @@ Campos para registrar/quitar:
   const total = Number(j.total) || 0;
   const installments = Math.max(1, Number(j.installments) || 1);
   const dataOk = /^\d{4}-\d{2}-\d{2}$/.test(j.data || "") ? j.data : hojeISO;
-  return { intencao: j.intencao || "registrar", valid: total > 0, type: j.type === "entrada" ? "entrada" : "saida", total, installments, valorParcela: total / installments, category: j.category || "Outros", subcategoria: (j.subcategoria || "").trim() || null, negocio: (j.negocio || "").trim() || null, desc: j.desc || frase.trim(), pessoa: (j.pessoa || "").trim() || null, pendente: Number(j.pendente) > 0 ? Number(j.pendente) : null, data: dataOk, lembrarDiasAntes: Number(j.lembrar_dias_antes) > 0 ? Math.min(30, Number(j.lembrar_dias_antes)) : null, edit: j.edit || null, lembrete: j.lembrete || null, lembreteBusca: (j.lembrete_busca || "").trim() || null };
+  return { intencao: j.intencao || "registrar", valid: total > 0, type: j.type === "entrada" ? "entrada" : "saida", total, installments, valorParcela: total / installments, category: j.category || "Outros", subcategoria: (j.subcategoria || "").trim() || null, negocio: (j.negocio || "").trim() || null, desc: j.desc || frase.trim(), pessoa: (j.pessoa || "").trim() || null, pendente: Number(j.pendente) > 0 ? Number(j.pendente) : null, data: dataOk, lembrarDiasAntes: Number(j.lembrar_dias_antes) > 0 ? Math.min(30, Number(j.lembrar_dias_antes)) : null, edit: j.edit || null, lembrete: j.lembrete || null, lembreteBusca: (j.lembrete_busca || "").trim() || null, emprestimo: j.emprestimo || null };
 }
 
 // ─── Q&A: responde perguntas financeiras consultando os dados do cliente ───
@@ -469,6 +470,27 @@ async function processarMensagem(body, env) {
     console.log("Texto interpretado:", texto);
     const p = await interpretar(texto, env);
     console.log("Resultado IA:", JSON.stringify(p));
+
+    // ─── empréstimo/financiamento: entra no caixa + parcelas a pagar ───
+    if (p.intencao === "emprestimo" && p.emprestimo) {
+      const e = p.emprestimo;
+      const recebido = Number(e.recebido) || 0;
+      const parcelas = Math.max(1, Math.min(60, Number(e.parcelas) || 1));
+      const vParc = Number(e.valorParcela) || 0;
+      if (recebido <= 0 || vParc <= 0) { await enviar(telefone, "Me diz quanto entrou e o valor das parcelas. Ex: \"peguei 4647 emprestado, 5x de 1000\".", env); return; }
+      const desc = (e.desc || "Empréstimo").trim();
+      const hoje = new Date();
+      const grupo = crypto.randomUUID();
+      const linhas = [{ cliente_id: cliente.id, tipo: "entrada", valor: Number(recebido.toFixed(2)), categoria: "Empréstimo", subcategoria: desc, descricao: `Empréstimo — ${desc}`, data: hoje.toISOString().slice(0, 10), fixa: false, origem: "whatsapp" }];
+      for (let i = 0; i < parcelas; i++) {
+        const d = new Date(hoje.getFullYear(), hoje.getMonth() + i + 1, Math.min(hoje.getDate(), 28));
+        linhas.push({ cliente_id: cliente.id, tipo: "saida", valor: Number(vParc.toFixed(2)), categoria: "Empréstimo", subcategoria: desc, descricao: `Parcela ${i + 1}/${parcelas} — ${desc}`, data: d.toISOString().slice(0, 10), fixa: false, grupo_parcela: grupo, parcela_atual: i + 1, parcela_total: parcelas, origem: "whatsapp" });
+      }
+      const ok = await gravarLancamentos(linhas, env);
+      const totalPagar = vParc * parcelas; const custo = totalPagar - recebido;
+      await enviar(telefone, ok ? `Empréstimo anotado! 💵 Entrou *${fmtBRL(recebido)}* no caixa. Você vai pagar *${parcelas}x de ${fmtBRL(vParc)}* (total ${fmtBRL(totalPagar)}${custo > 0 ? `, custo de ${fmtBRL(custo)} em juros` : ""}). Não conto isso como lucro — é dívida. 👍` : "Ops, não consegui salvar. Tenta de novo?", env);
+      return;
+    }
 
     // ─── criar lembrete: "me lembra de tomar remédio todo dia às 8h" ───
     if (p.intencao === "lembrete" && p.lembrete) {

@@ -260,13 +260,14 @@ function Client({user,logout}) {
   const calc=useMemo(()=>{
     const NOW=today();const cur=mk(NOW);const realized=(d)=>new Date(d+"T12:00:00")<=NOW;
     const ativos=txs.filter((t)=>!t.cancelado); // cancelados não entram no somatório
-    let entradasMes=0,saidasMes=0,proLabore=0,investido=0;const catMap={};
+    let entradasMes=0,saidasMes=0,proLabore=0,investido=0,emprestEntMes=0,emprestSaiMes=0;const catMap={};
     const vendaSubMap={},investSubMap={};const negMap={};
+    const ehEmprest=(t)=>t.category==="Empréstimo";
     ativos.forEach((t)=>{
       if(mk(new Date(t.date+"T12:00:00"))===cur){
         if(t.negocio){if(!negMap[t.negocio])negMap[t.negocio]={entrada:0,saida:0};negMap[t.negocio][t.type]+=t.amount;}
-        if(t.type==="entrada"){entradasMes+=t.amount;const k=t.sub||t.category;vendaSubMap[k]=(vendaSubMap[k]||0)+t.amount;}
-        else{saidasMes+=t.amount;if(t.category==="Pró-labore")proLabore+=t.amount;else if(t.category==="Investimento")investido+=t.amount;const gk=t.sub||t.category;catMap[gk]=(catMap[gk]||0)+t.amount;if(t.category==="Marketing"||t.category==="Investimento"){const k=t.sub||t.category;investSubMap[k]=(investSubMap[k]||0)+t.amount;}}
+        if(t.type==="entrada"){entradasMes+=t.amount;if(ehEmprest(t))emprestEntMes+=t.amount;const k=t.sub||t.category;vendaSubMap[k]=(vendaSubMap[k]||0)+t.amount;}
+        else{saidasMes+=t.amount;if(ehEmprest(t))emprestSaiMes+=t.amount;if(t.category==="Pró-labore")proLabore+=t.amount;else if(t.category==="Investimento")investido+=t.amount;const gk=t.sub||t.category;catMap[gk]=(catMap[gk]||0)+t.amount;if(t.category==="Marketing"||t.category==="Investimento"){const k=t.sub||t.category;investSubMap[k]=(investSubMap[k]||0)+t.amount;}}
       }
     });
     const vendaSub=Object.entries(vendaSubMap).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
@@ -278,13 +279,20 @@ function Client({user,logout}) {
     const totalFixo=despesas.reduce((s,d)=>s+Number(d.valor),0);
     const mesesReserva=Number(perfil?.reserva_meses||1);const reserva=totalFixo*mesesReserva;
     const proj=[];let run=caixa;
-    for(let i=1;i<=5;i++){const key=mk(addMonths(NOW,i));const ent=ativos.filter((t)=>t.type==="entrada"&&mk(new Date(t.date+"T12:00:00"))===key).reduce((s,t)=>s+t.amount,0);run=run+ent-totalFixo;proj.push({key,label:monthLabel(key),entrada:ent,fixa:totalFixo,caixaFim:Math.round(run)});}
+    for(let i=1;i<=5;i++){const key=mk(addMonths(NOW,i));const noMes=(t)=>mk(new Date(t.date+"T12:00:00"))===key;const ent=ativos.filter((t)=>t.type==="entrada"&&noMes(t)).reduce((s,t)=>s+t.amount,0);const saiFut=ativos.filter((t)=>t.type==="saida"&&noMes(t)).reduce((s,t)=>s+t.amount,0);run=run+ent-totalFixo-saiFut;proj.push({key,label:monthLabel(key),entrada:ent,fixa:totalFixo+saiFut,caixaFim:Math.round(run)});}
     const prox=proj[0]||{entrada:0,key:mk(addMonths(NOW,1))};
     const podeGastar=caixa+prox.entrada-totalFixo-reserva;
     const coberto=caixa+prox.entrada>=totalFixo+reserva;
-    const lucro=entradasMes-(saidasMes-proLabore-investido);
+    // lucro NÃO conta empréstimo (entrada de dívida) nem suas parcelas (financiamento, não operação)
+    const lucro=(entradasMes-emprestEntMes)-((saidasMes-emprestSaiMes)-proLabore-investido);
     const cats=Object.entries(catMap).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
-    return{caixa,entradasMes,saidasMes,fixa:totalFixo,reserva,mesesReserva,proj,prox,podeGastar,coberto,proLabore,investido,lucro,cats,vendaSub,investSub,negocios};
+    // DÍVIDAS: parcelas de empréstimo ainda não pagas (futuras)
+    const parcDiv=ativos.filter((t)=>t.type==="saida"&&t.category==="Empréstimo"&&new Date(t.date+"T12:00:00")>NOW);
+    const dividaTotal=parcDiv.reduce((s,t)=>s+t.amount,0);
+    const totalEmprest=ativos.filter((t)=>t.type==="entrada"&&t.category==="Empréstimo").reduce((s,t)=>s+t.amount,0);
+    const totalParcelas=ativos.filter((t)=>t.type==="saida"&&t.category==="Empréstimo").reduce((s,t)=>s+t.amount,0);
+    const dividas={aPagar:dividaTotal,parcelasRestantes:parcDiv.length,totalEmprestado:totalEmprest,custo:Math.max(0,totalParcelas-totalEmprest)};
+    return{caixa,entradasMes,saidasMes,fixa:totalFixo,reserva,mesesReserva,proj,prox,podeGastar,coberto,proLabore,investido,lucro,cats,vendaSub,investSub,negocios,dividas};
   },[txs,perfil,despesas]);
 
   if(load)return<Centro><Loader2 size={26} color={C.gold} className="animate-spin"/></Centro>;
@@ -403,8 +411,8 @@ function DespesasFixas({despesas,onUpdate,showToast}) {
 function Lancar({user,onAdd,showToast}) {
   const[type,setType]=useState("saida");const[amt,setAmt]=useState("");const[cat,setCat]=useState("Alimentação");const[sub,setSub]=useState("");const[negocio,setNegocio]=useState("");const[desc,setDesc]=useState("");const[inst,setInst]=useState(1);const[load,setLoad]=useState(false);
   const[dataLanc,setDataLanc]=useState(()=>{const n=today();return mk(n)+"-"+String(Math.min(n.getDate(),28)).padStart(2,"0");});
-  const CATS_SAIDA=["Alimentação","Moradia","Transporte","Assinaturas","Lazer","Saúde","Marketing","Equipe","Insumos","Impostos","Pró-labore","Investimento","Outros"];
-  const CATS_ENTRADA=["Vendas","Salário","Pró-labore","Investimento","Outros"];
+  const CATS_SAIDA=["Alimentação","Moradia","Transporte","Assinaturas","Lazer","Saúde","Marketing","Equipe","Insumos","Impostos","Pró-labore","Investimento","Empréstimo","Outros"];
+  const CATS_ENTRADA=["Vendas","Salário","Empréstimo","Pró-labore","Investimento","Empréstimo","Outros"];
   const cats=type==="saida"?CATS_SAIDA:CATS_ENTRADA;
   const handleType=(t)=>{setType(t);setCat(t==="saida"?"Alimentação":"Vendas");};
   const field={background:C.panel2,border:`1px solid ${C.border}`,color:C.text,fontSize:13,borderRadius:8,padding:"9px 11px",width:"100%",outline:"none"};
@@ -655,8 +663,8 @@ function EditarLancamento({tx,onClose,onSaved,showToast}) {
   const[type,setType]=useState(tx.type);const[amt,setAmt]=useState(String(tx.amount).replace(".",","));
   const[cat,setCat]=useState(tx.category);const[sub,setSub]=useState(tx.sub||"");const[negocio,setNegocio]=useState(tx.negocio||"");const[desc,setDesc]=useState(tx.desc||"");
   const[pessoa,setPessoa]=useState(tx.pessoa||"");const[data,setData]=useState(tx.date);const[load,setLoad]=useState(false);
-  const CATS_SAIDA=["Alimentação","Moradia","Transporte","Saúde","Assinaturas","Lazer","Marketing","Equipe","Insumos","Impostos","Pró-labore","Investimento","Outros"];
-  const CATS_ENTRADA=["Vendas","Salário","Pró-labore","Investimento","Outros"];
+  const CATS_SAIDA=["Alimentação","Moradia","Transporte","Saúde","Assinaturas","Lazer","Marketing","Equipe","Insumos","Impostos","Pró-labore","Investimento","Empréstimo","Outros"];
+  const CATS_ENTRADA=["Vendas","Salário","Empréstimo","Pró-labore","Investimento","Empréstimo","Outros"];
   const cats=type==="saida"?CATS_SAIDA:CATS_ENTRADA;
   const field={background:C.panel2,border:`1px solid ${C.border}`,color:C.text,fontSize:13,borderRadius:8,padding:"9px 11px",width:"100%",outline:"none"};
   const salvar=async()=>{
@@ -776,6 +784,16 @@ function Negocio({calc,meta,mes,onMeta,showToast,perfil}) {
         :<div style={{width:"100%",height:240}}><ResponsiveContainer><ComposedChart data={calc.proj} margin={{top:10,right:8,left:-8,bottom:0}}><CartesianGrid stroke={C.border} vertical={false}/><XAxis dataKey="label" tick={{fill:C.muted,fontSize:12}} axisLine={{stroke:C.border}} tickLine={false}/><YAxis tick={{fill:C.faint,fontSize:11}} axisLine={false} tickLine={false} tickFormatter={(v)=>`${(v/1000).toFixed(0)}k`}/><Tooltip formatter={(v,n)=>[brl(v),n]} contentStyle={{background:C.panel2,border:`1px solid ${C.border2}`,borderRadius:10,color:C.text,fontSize:12}}/><Legend wrapperStyle={{fontSize:12,color:C.muted}}/><Bar dataKey="entrada" name="Entrada prevista" fill={C.emer} radius={[4,4,0,0]} barSize={18}/><Bar dataKey="fixa" name="Despesa fixa" fill={C.coral} radius={[4,4,0,0]} barSize={18}/><Line dataKey="caixaFim" name="Caixa no fim do mês" stroke={C.gold} strokeWidth={2.5} dot={{r:3,fill:C.gold}}/></ComposedChart></ResponsiveContainer></div>
       }
     </Panel>
+    {/* DÍVIDAS / EMPRÉSTIMOS (só aparece se houver dívida em aberto) */}
+    {calc.dividas.aPagar>0&&<Panel style={{borderColor:C.coral+"44"}}>
+      <div className="flex items-center gap-2 mb-1" style={{fontSize:14,fontWeight:500}}><AlertCircle size={15} color={C.coral}/> Dívidas e financiamentos</div>
+      <p style={{fontSize:11.5,color:C.faint,marginBottom:12}}>Empréstimos não contam como lucro — é dinheiro que você devolve.</p>
+      <div className="grid gap-3" style={{gridTemplateColumns:"repeat(auto-fit, minmax(150px, 1fr))"}}>
+        <div style={{background:C.panel2,borderRadius:12,padding:"12px"}}><div style={{fontSize:11.5,color:C.faint}}>Falta pagar</div><div style={{fontFamily:sans,fontSize:22,fontWeight:700,color:C.coral}}>{brl0(calc.dividas.aPagar)}</div></div>
+        <div style={{background:C.panel2,borderRadius:12,padding:"12px"}}><div style={{fontSize:11.5,color:C.faint}}>Parcelas restantes</div><div style={{fontFamily:sans,fontSize:22,fontWeight:700}}>{calc.dividas.parcelasRestantes}</div></div>
+        <div style={{background:C.panel2,borderRadius:12,padding:"12px"}}><div style={{fontSize:11.5,color:C.faint}}>Custo (juros)</div><div style={{fontFamily:sans,fontSize:22,fontWeight:700,color:C.gold}}>{brl0(calc.dividas.custo)}</div></div>
+      </div>
+    </Panel>}
     {/* POR NEGÓCIO (só aparece se houver lançamentos com negócio) */}
     {calc.negocios.length>0&&<Panel>
       <div className="flex items-center gap-2 mb-1" style={{fontSize:14,fontWeight:500}}><Briefcase size={15} color={C.emer}/> Por negócio <span style={{fontSize:11,color:C.faint}}>· este mês</span></div>
