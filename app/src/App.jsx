@@ -38,6 +38,9 @@ const addMonths= (d,n) => new Date(d.getFullYear(),d.getMonth()+n,d.getDate());
 const monthLabel=(key)=>{ const[y,m]=key.split("-").map(Number); return new Date(y,m-1,1).toLocaleDateString("pt-BR",{month:"short"}).replace(".",""); };
 const CATC = { Alimentação:"#e9cd88",Moradia:"#c0a366",Transporte:"#caa86a",Assinaturas:"#a9824c",Lazer:"#d8b56a",Saúde:"#7ea8d8","Pró-labore":"#2ed6a0",Investimento:"#1d8a6f",Vendas:"#54e8b8",Outros:"#6b7693" };
 const colorFor = (c) => CATC[c]||"#6b7693";
+// paleta distinta para itens variados (cores que combinam com o tema escuro)
+const PALETA = ["#1fdd8e","#2dd4bf","#e9cd88","#e0857a","#6ba8e0","#a98bdc","#e08bbf","#a9d86a","#e0a55a","#5ad8d8","#d86a9a","#8ad86a","#dcc06a","#6a9ad8"];
+const corItem = (nome,i) => CATC[nome] || PALETA[i % PALETA.length];
 const parseBRL = (s) => { if(!s)return NaN; const str=String(s).trim(); if(/^\d{1,3}(\.\d{3})*,\d{0,2}$/.test(str))return parseFloat(str.replace(/\./g,"").replace(",",".")); return parseFloat(str.replace(",",".")); };
 
 /* ─── COMPONENTES BASE ────────────────────────────────────────────── */
@@ -324,10 +327,10 @@ function Visao({calc,perfil,despesas,onUpdate,showToast}) {
         ?<div style={{fontSize:13,color:C.faint,padding:16}}>Ainda sem lançamentos neste mês. Mande um áudio no WhatsApp ou lance manualmente.</div>
         :<div className="flex items-center gap-4 flex-wrap">
           <div style={{width:150,height:150,flexShrink:0}}>
-            <ResponsiveContainer><PieChart><Pie data={calc.cats} dataKey="value" nameKey="name" innerRadius={45} outerRadius={72} paddingAngle={2} stroke="none">{calc.cats.map((c)=><Cell key={c.name} fill={colorFor(c.name)}/>)}</Pie><Tooltip formatter={(v)=>[brl(v),""]} contentStyle={{background:C.panel2,border:`1px solid ${C.border2}`,borderRadius:10,color:C.text,fontSize:12}}/></PieChart></ResponsiveContainer>
+            <ResponsiveContainer><PieChart><Pie data={calc.cats} dataKey="value" nameKey="name" innerRadius={45} outerRadius={72} paddingAngle={2} stroke="none">{calc.cats.map((c,i)=><Cell key={c.name} fill={corItem(c.name,i)}/>)}</Pie><Tooltip formatter={(v)=>[brl(v),""]} contentStyle={{background:C.panel2,border:`1px solid ${C.border2}`,borderRadius:10,color:C.text,fontSize:12}}/></PieChart></ResponsiveContainer>
           </div>
           <div className="flex-1 flex flex-col gap-1.5" style={{minWidth:170}}>
-            {calc.cats.map((c)=><div key={c.name} className="flex items-center justify-between" style={{fontSize:13}}><div className="flex items-center gap-2"><span style={{width:9,height:9,borderRadius:3,background:colorFor(c.name),display:"inline-block"}}/>{c.name}</div><div style={{color:C.muted}}>{brl(c.value)}</div></div>)}
+            {calc.cats.map((c,i)=><div key={c.name} className="flex items-center justify-between" style={{fontSize:13}}><div className="flex items-center gap-2"><span style={{width:9,height:9,borderRadius:3,background:corItem(c.name,i),display:"inline-block"}}/>{c.name}</div><div style={{color:C.muted}}>{brl(c.value)}</div></div>)}
           </div>
         </div>
       }
@@ -610,7 +613,7 @@ function Lista({txs,onDelete,showToast}) {
       <div className="flex gap-3" style={{fontSize:12}}><span style={{color:C.emer}}>↑ {brl(resumo.totEnt)}</span><span style={{color:C.coral}}>↓ {brl(resumo.totSai)}</span><span style={{color:resumo.saldo>=0?C.gold:C.coral,fontWeight:600}}>= {brl(resumo.saldo)}</span></div>
     </div>
     {resumo.cats.map((c,i)=><div key={c.nome} className="flex items-center justify-between py-2" style={{fontSize:13,borderTop:i?`1px solid ${C.border}`:"none"}}>
-      <div className="flex items-center gap-2"><span style={{width:9,height:9,borderRadius:3,background:colorFor(c.nome),display:"inline-block"}}/>{c.nome}</div>
+      <div className="flex items-center gap-2"><span style={{width:9,height:9,borderRadius:3,background:corItem(c.nome,i),display:"inline-block"}}/>{c.nome}</div>
       <div className="flex gap-4">{c.entrada>0&&<span style={{color:C.emer}}>+{brl(c.entrada)}</span>}{c.saida>0&&<span style={{color:C.coral}}>-{brl(c.saida)}</span>}</div>
     </div>)}
   </Panel>}
