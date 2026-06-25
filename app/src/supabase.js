@@ -40,6 +40,10 @@ export async function carregarLancamentos() {
   }));
   return { txs, error };
 }
+export async function renomearPessoa(antigo, novo) {
+  const { error } = await supabase.from("lancamentos").update({ pessoa: novo }).eq("pessoa", antigo);
+  return { error };
+}
 export async function editarLancamento(id, campos) {
   const { error } = await supabase.from("lancamentos").update(campos).eq("id", id);
   return { error };

@@ -13,7 +13,7 @@ import {
   supabase, entrar, sair, definirSenha, usuarioAtual, ehAdmin, meuPerfil,
   carregarLancamentos, inserirLancamentos, carregarClientes,
   carregarDespesasFixas, inserirDespesaFixa, excluirDespesaFixa, editarDespesaFixa, pagarDespesaFixa,
-  atualizarSaldoInicial, atualizarCliente, editarLancamento,
+  atualizarSaldoInicial, atualizarCliente, editarLancamento, renomearPessoa,
   carregarMeta, salvarMeta, salvarPlanejamento, carregarCores, salvarCor,
 } from "./supabase";
 import { sincronizarManual } from "./drive";
@@ -300,7 +300,7 @@ function Client({user,logout}) {
     {tab==="visao"&&<Visao calc={calc} perfil={perfil} despesas={despesas} showToast={showToast} onUpdate={recarregar} cores={cores} definirCor={definirCor}/>}
     {tab==="lancar"&&<Lancar user={user} onAdd={recarregar} showToast={showToast}/>}
     {tab==="negocio"&&<Negocio calc={calc} meta={meta} mes={mesAtual} onMeta={recarregar} showToast={showToast} perfil={perfil}/>}
-    {tab==="clientes"&&<Clientes txs={txs}/>}
+    {tab==="clientes"&&<Clientes txs={txs} onUpdate={recarregar} showToast={showToast}/>}
     {tab==="relatorio"&&<Relatorio txs={txs} perfil={perfil} showToast={showToast}/>}
     {tab==="lancamentos"&&<Lista txs={txs} onDelete={recarregar} showToast={showToast} cores={cores}/>}
     {tab==="fixas"&&<DespesasFixas despesas={despesas} onUpdate={recarregar} showToast={showToast}/>}
@@ -486,8 +486,9 @@ function Relatorio({txs,perfil,showToast}) {
 }
 
 /* ─── CLIENTES (mini-CRM) ─────────────────────────────────────────── */
-function Clientes({txs}) {
-  const[busca,setBusca]=useState("");const[ordem,setOrdem]=useState("gerado");
+function Clientes({txs,onUpdate,showToast}) {
+  const[busca,setBusca]=useState("");const[ordem,setOrdem]=useState("gerado");const[editNome,setEditNome]=useState(null);const[novo,setNovo]=useState("");const[savingN,setSavingN]=useState(false);
+  const renomear=async(antigo)=>{const n=novo.trim();if(!n)return showToast("Digite o nome","error");if(n===antigo){setEditNome(null);return;}setSavingN(true);const{error}=await renomearPessoa(antigo,n);setSavingN(false);if(error)return showToast("Erro ao renomear","error");setEditNome(null);showToast("Nome atualizado!");onUpdate&&onUpdate();};
   const fmtD=(d)=>new Date(d+"T12:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"2-digit"});
   const mapa=useMemo(()=>{
     const m={};
@@ -528,8 +529,11 @@ function Clientes({txs}) {
       </div>
       {lista.map((c,i)=><div key={c.nome} className="flex items-center gap-3 py-2.5" style={{borderTop:i?`1px solid ${C.border}`:"none"}}>
         <div style={{width:34,height:34,borderRadius:"50%",background:C.panel2,border:`1px solid ${C.border}`,fontSize:13,color:C.gold,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{c.nome[0].toUpperCase()}</div>
-        <div className="flex-1" style={{minWidth:0}}><div style={{fontSize:14,fontWeight:500}}>{c.nome}</div><div style={{fontSize:11.5,color:C.faint}}>{c.n} {c.n===1?"lançamento":"lançamentos"} · última {fmtD(c.ult)}</div></div>
+        {editNome===c.nome
+          ?<div className="flex-1 flex gap-2 items-center"><input autoFocus value={novo} onChange={(e)=>setNovo(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&renomear(c.nome)} style={{...fieldSm,flex:1}}/><button onClick={()=>renomear(c.nome)} disabled={savingN} style={{background:C.gold,color:"#16213a",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{savingN?"…":"Salvar"}</button><button onClick={()=>setEditNome(null)} style={{background:"none",border:"none",color:C.faint,cursor:"pointer",fontSize:13}}>✕</button></div>
+          :<><div className="flex-1" style={{minWidth:0}}><div style={{fontSize:14,fontWeight:500}}>{c.nome}</div><div style={{fontSize:11.5,color:C.faint}}>{c.n} {c.n===1?"lançamento":"lançamentos"} · última {fmtD(c.ult)}</div></div>
         <div style={{textAlign:"right",flexShrink:0}}><div style={{fontSize:14,fontWeight:600,color:C.emer}}>{brl(c.gerado)}</div>{c.aReceber>0&&<div style={{fontSize:11.5,color:C.emer}}>a receber {brl(c.aReceber)}</div>}{c.aPagar>0&&<div style={{fontSize:11.5,color:C.coral}}>a pagar {brl(c.aPagar)}</div>}</div>
+        <button onClick={()=>{setEditNome(c.nome);setNovo(c.nome);}} style={{background:"none",border:"none",cursor:"pointer",color:C.faint,padding:3,flexShrink:0}} title="Renomear"><Settings size={14}/></button></>}
       </div>)}
       {lista.length===0&&<div style={{textAlign:"center",padding:20,color:C.faint,fontSize:13}}>Nenhum cliente com esse nome.</div>}
     </Panel>
