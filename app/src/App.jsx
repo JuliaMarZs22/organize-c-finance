@@ -12,7 +12,7 @@ import {
 import {
   supabase, entrar, sair, definirSenha, usuarioAtual, ehAdmin, meuPerfil,
   carregarLancamentos, inserirLancamentos, carregarClientes,
-  carregarDespesasFixas, inserirDespesaFixa, excluirDespesaFixa,
+  carregarDespesasFixas, inserirDespesaFixa, excluirDespesaFixa, editarDespesaFixa, pagarDespesaFixa,
   atualizarSaldoInicial, atualizarCliente, editarLancamento,
   carregarMeta, salvarMeta, salvarPlanejamento,
 } from "./supabase";
@@ -346,9 +346,32 @@ function DespesasFixas({despesas,onUpdate,showToast}) {
   const field={background:C.panel2,border:`1px solid ${C.border}`,color:C.text,fontSize:13,borderRadius:8,padding:"9px 11px",outline:"none"};
   const adicionar=async()=>{const v=parseBRL(valor);if(!nome.trim())return showToast("Digite o nome.","error");if(isNaN(v)||v<=0)return showToast("Digite um valor válido.","error");const dv=dia?Math.max(1,Math.min(31,Number(dia))):null;setLoad(true);const{error}=await inserirDespesaFixa(nome.trim(),v,dv,tipo);setLoad(false);if(error)return showToast("Erro ao adicionar.","error");setNome("");setValor("");setDia("");showToast("Despesa adicionada!");onUpdate();};
   const excluir=async(id)=>{setDeleting(id);const{error}=await excluirDespesaFixa(id);setDeleting(null);if(error)return showToast("Erro ao remover.","error");showToast("Despesa removida.");onUpdate();};
+  const[editId,setEditId]=useState(null);const[eVal,setEVal]=useState("");const[eDia,setEDia]=useState("");const[eTipo,setETipo]=useState("pj");const[paying,setPaying]=useState(null);
+  const mesAtual=mk(today());
+  const abrirEdit=(d)=>{setEditId(d.id);setEVal(String(d.valor).replace(".",","));setEDia(d.dia_vencimento?String(d.dia_vencimento):"");setETipo(d.tipo||"pj");};
+  const salvarEdit=async(d)=>{const v=parseBRL(eVal);if(isNaN(v)||v<=0)return showToast("Valor inválido","error");const dv=eDia?Math.max(1,Math.min(31,Number(eDia))):null;const{error}=await editarDespesaFixa(d.id,{valor:v,dia_vencimento:dv,tipo:eTipo});if(error)return showToast("Erro ao salvar","error");setEditId(null);showToast("Despesa atualizada!");onUpdate();};
+  const pagar=async(d)=>{setPaying(d.id);const{error}=await pagarDespesaFixa(d,mesAtual);setPaying(null);if(error)return showToast("Erro ao registrar pagamento","error");showToast("Pago! ✅ Saída registrada no caixa.");onUpdate();};
   const pj=despesas.filter((d)=>(d.tipo||"pj")==="pj");const pf=despesas.filter((d)=>(d.tipo||"pj")==="pf");
   const totPj=pj.reduce((s,d)=>s+Number(d.valor),0);const totPf=pf.reduce((s,d)=>s+Number(d.valor),0);
-  const Linha=(d,i)=><div key={d.id} className="flex items-center justify-between py-2.5 gap-3" style={{borderTop:i?`1px solid ${C.border}`:"none"}}><div style={{flex:1}}><span style={{fontSize:13}}>{d.nome}</span>{d.dia_vencimento&&<span style={{fontSize:11,color:C.faint,marginLeft:8}}>vence dia {d.dia_vencimento}</span>}</div><span style={{fontSize:13,color:C.coral,fontWeight:600}}>{brl(d.valor)}</span><button onClick={()=>excluir(d.id)} disabled={deleting===d.id} style={{background:"none",border:"none",cursor:"pointer",color:C.faint,padding:4}}>{deleting===d.id?<Loader2 size={14} className="animate-spin"/>:<Trash2 size={15}/>}</button></div>;
+  const fieldSm={background:C.panel2,border:`1px solid ${C.border}`,color:C.text,fontSize:12.5,borderRadius:8,padding:"6px 9px",outline:"none"};
+  const Linha=(d,i)=>{const pago=d.pago_mes===mesAtual;
+    if(editId===d.id)return<div key={d.id} className="py-2.5" style={{borderTop:i?`1px solid ${C.border}`:"none"}}>
+      <div style={{fontSize:13,fontWeight:600,marginBottom:6}}>{d.nome}</div>
+      <div className="flex gap-1.5 mb-2">{[["pj","Empresa"],["pf","Pessoal"]].map(([k,l])=><button key={k} onClick={()=>setETipo(k)} className="flex-1 rounded-lg py-1.5" style={{fontSize:12,cursor:"pointer",background:eTipo===k?C.emer+"22":C.panel2,color:eTipo===k?C.emer:C.muted,border:`1px solid ${eTipo===k?C.emer+"66":C.border}`}}>{l}</button>)}</div>
+      <div className="flex gap-2 items-center">
+        <input value={eVal} onChange={(e)=>setEVal(e.target.value)} placeholder="Valor" inputMode="decimal" style={{...fieldSm,flex:1}}/>
+        <input value={eDia} onChange={(e)=>setEDia(e.target.value)} placeholder="Dia" type="number" min={1} max={31} style={{...fieldSm,width:64}}/>
+        <button onClick={()=>salvarEdit(d)} style={{background:C.gold,color:"#16213a",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Salvar</button>
+        <button onClick={()=>setEditId(null)} style={{background:"none",border:"none",color:C.faint,cursor:"pointer",fontSize:12.5}}>✕</button>
+      </div>
+    </div>;
+    return<div key={d.id} className="flex items-center justify-between py-2.5 gap-2" style={{borderTop:i?`1px solid ${C.border}`:"none"}}>
+      <div style={{flex:1,minWidth:0}}><span style={{fontSize:13}}>{d.nome}</span>{d.dia_vencimento&&<span style={{fontSize:11,color:C.faint,marginLeft:8}}>vence dia {d.dia_vencimento}</span>}{pago&&<span style={{fontSize:11,color:C.emer,marginLeft:8,fontWeight:600}}>✓ paga</span>}</div>
+      <span style={{fontSize:13,color:pago?C.faint:C.coral,fontWeight:600}}>{brl(d.valor)}</span>
+      {!pago&&<button onClick={()=>pagar(d)} disabled={paying===d.id} style={{background:C.emer+"22",color:C.emer,border:`1px solid ${C.emer}55`,borderRadius:8,padding:"4px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>{paying===d.id?"...":"Pagar"}</button>}
+      <button onClick={()=>abrirEdit(d)} style={{background:"none",border:"none",cursor:"pointer",color:C.faint,padding:3}} title="Editar"><Settings size={14}/></button>
+      <button onClick={()=>excluir(d.id)} disabled={deleting===d.id} style={{background:"none",border:"none",cursor:"pointer",color:C.faint,padding:3}}>{deleting===d.id?<Loader2 size={13} className="animate-spin"/>:<Trash2 size={14}/>}</button>
+    </div>;};
   const Grupo=({titulo,itens,total})=>itens.length?<Panel><div className="flex items-center justify-between mb-1"><div style={{fontSize:13,fontWeight:600}}>{titulo}</div><div style={{fontSize:13,fontWeight:600,color:C.coral}}>{brl(total)}</div></div>{itens.map(Linha)}</Panel>:null;
   return <div className="grid gap-4" style={{gridTemplateColumns:"minmax(0,520px)",justifyContent:"center"}}>
     <Panel>
