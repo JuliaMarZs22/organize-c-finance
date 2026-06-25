@@ -362,6 +362,7 @@ async function gravarLancamentos(linhas, env) {
     },
     body: JSON.stringify(linhas),
   });
+  if (!r.ok) console.log("GRAVAR falhou:", r.status, (await r.text()).slice(0, 300));
   return r.ok;
 }
 
@@ -481,7 +482,7 @@ async function processarMensagem(body, env) {
       const desc = (e.desc || "Empréstimo").trim();
       const hoje = new Date();
       const grupo = crypto.randomUUID();
-      const linhas = [{ cliente_id: cliente.id, tipo: "entrada", valor: Number(recebido.toFixed(2)), categoria: "Empréstimo", subcategoria: desc, descricao: `Empréstimo — ${desc}`, data: hoje.toISOString().slice(0, 10), fixa: false, origem: "whatsapp" }];
+      const linhas = [{ cliente_id: cliente.id, tipo: "entrada", valor: Number(recebido.toFixed(2)), categoria: "Empréstimo", subcategoria: desc, descricao: `Empréstimo — ${desc}`, data: hoje.toISOString().slice(0, 10), fixa: false, grupo_parcela: grupo, parcela_atual: null, parcela_total: null, origem: "whatsapp" }];
       for (let i = 0; i < parcelas; i++) {
         const d = new Date(hoje.getFullYear(), hoje.getMonth() + i + 1, Math.min(hoje.getDate(), 28));
         linhas.push({ cliente_id: cliente.id, tipo: "saida", valor: Number(vParc.toFixed(2)), categoria: "Empréstimo", subcategoria: desc, descricao: `Parcela ${i + 1}/${parcelas} — ${desc}`, data: d.toISOString().slice(0, 10), fixa: false, grupo_parcela: grupo, parcela_atual: i + 1, parcela_total: parcelas, origem: "whatsapp" });
