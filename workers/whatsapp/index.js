@@ -194,7 +194,7 @@ Sempre que fizer sentido, dê 1 conselho prático (capacidade de investir, onde 
 // busca pendências em aberto de uma pessoa (valor_pendente > 0)
 async function buscarPendencias(pessoa, clienteId, env) {
   const q = encodeURIComponent(`*${pessoa}*`);
-  const r = await fetch(`${env.SUPABASE_URL}/rest/v1/lancamentos?cliente_id=eq.${clienteId}&pessoa=ilike.${q}&cancelado=eq.false&valor_pendente=gt.0&select=id,descricao,categoria,valor_pendente,pessoa`, {
+  const r = await fetch(`${env.SUPABASE_URL}/rest/v1/lancamentos?cliente_id=eq.${clienteId}&pessoa=ilike.${q}&cancelado=eq.false&valor_pendente=gt.0&select=id,tipo,descricao,categoria,valor_pendente,pessoa`, {
     headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
   });
   const rows = await r.json();
@@ -324,7 +324,7 @@ function textoConfirmacao(p) {
   const hojeISO = new Date().toISOString().slice(0, 10);
   const dataTxt = p.data && p.data !== hojeISO ? ` em ${p.data.split("-").reverse().join("/")}` : "";
   const negTxt = p.negocio ? ` · ${p.negocio}` : "";
-  const extra = `${p.pessoa ? ` (${p.pessoa})` : ""}${negTxt}${p.pendente ? ` — falta receber ${fmt(p.pendente)}` : ""}`;
+  const extra = `${p.pessoa ? ` (${p.pessoa})` : ""}${negTxt}${p.pendente ? ` — falta ${p.type === "saida" ? "pagar" : "receber"} ${fmt(p.pendente)}` : ""}`;
   if (p.installments > 1) return `Anotei: *${p.installments} entradas de ${fmt(p.valorParcela)}*, uma por mês, em ${cat}${extra}. Confirma? 👍`;
   return `Registrei: *${p.type === "entrada" ? "Entrada" : "Saída"} de ${fmt(p.total)}*${dataTxt} em ${cat}${extra}. Confirma? 👍`;
 }
@@ -434,12 +434,14 @@ async function processarMensagem(body, env) {
     if (pendente) {
       if (ehConfirmar(texto)) {
         if (pendente.tipo === "liquidacao") {
-          // registra a entrada da quitação e zera as pendências
-          const linha = [{ cliente_id: cliente.id, tipo: "entrada", valor: Number(pendente.total.toFixed(2)), categoria: pendente.category || "Vendas", descricao: `Quitação — ${pendente.pessoa}`, data: new Date().toISOString().slice(0, 10), fixa: false, pessoa: pendente.pessoa, origem: "whatsapp" }];
+          // direção: se a pendência era saída (você devia), a quitação é SAÍDA; se entrada, ENTRADA
+          const dir = pendente.dirSaida ? "saida" : "entrada";
+          const linha = [{ cliente_id: cliente.id, tipo: dir, valor: Number(pendente.total.toFixed(2)), categoria: pendente.category || (dir === "saida" ? "Outros" : "Vendas"), descricao: `${dir === "saida" ? "Pagamento" : "Quitação"} — ${pendente.pessoa}`, data: new Date().toISOString().slice(0, 10), fixa: false, pessoa: pendente.pessoa, origem: "whatsapp" }];
           const ok = await gravarLancamentos(linha, env);
           if (ok) await zerarPendencias(pendente.ids, env);
           await pendDel(env, telefone);
-          await enviar(telefone, ok ? `Quitação registrada! ✅ Entrada de ${fmtBRL(pendente.total)} de ${pendente.pessoa}. Conta zerada.` : "Ops, não consegui salvar. Tenta de novo?", env);
+          const verbo = dir === "saida" ? `Pagamento registrado! ✅ Saída de ${fmtBRL(pendente.total)} pra ${pendente.pessoa}` : `Quitação registrada! ✅ Entrada de ${fmtBRL(pendente.total)} de ${pendente.pessoa}`;
+          await enviar(telefone, ok ? `${verbo}. Conta zerada.` : "Ops, não consegui salvar. Tenta de novo?", env);
           return;
         }
         if (pendente.tipo === "cancelamento") {
@@ -537,8 +539,10 @@ async function processarMensagem(body, env) {
       if (!pend.length) { await enviar(telefone, `Não achei nenhuma pendência em aberto de *${p.pessoa}*. Se quiser, me diga o valor que entrou.`, env); return; }
       const total = pend.reduce((s, r) => s + Number(r.valor_pendente), 0);
       const ids = pend.map((r) => r.id);
-      await pendSet(env, telefone, { tipo: "liquidacao", pessoa: p.pessoa, total, ids, category: pend[0].categoria || "Vendas" });
-      await enviar(telefone, `*${p.pessoa}* tinha ${fmtBRL(total)} em aberto. Registrar como entrada agora e zerar a conta? 👍`, env);
+      const dirSaida = pend[0].tipo === "saida"; // pendência de saída = você devia
+      await pendSet(env, telefone, { tipo: "liquidacao", pessoa: p.pessoa, total, ids, category: pend[0].categoria || (dirSaida ? "Outros" : "Vendas"), dirSaida });
+      const txt = dirSaida ? `Você tinha ${fmtBRL(total)} a pagar pra *${p.pessoa}*. Registrar o pagamento (saída) agora e zerar? 👍` : `*${p.pessoa}* tinha ${fmtBRL(total)} a receber. Registrar a entrada agora e zerar a conta? 👍`;
+      await enviar(telefone, txt, env);
       return;
     }
 

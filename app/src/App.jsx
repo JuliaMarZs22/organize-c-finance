@@ -492,23 +492,32 @@ function Clientes({txs}) {
   const mapa=useMemo(()=>{
     const m={};
     txs.filter((t)=>t.pessoa&&!t.cancelado).forEach((t)=>{
-      const k=t.pessoa.trim();if(!m[k])m[k]={nome:k,gerado:0,gasto:0,pendente:0,n:0,ult:t.date};
-      if(t.type==="entrada")m[k].gerado+=t.amount;else m[k].gasto+=t.amount;
-      m[k].pendente+=(t.pendente||0);m[k].n++;if(t.date>m[k].ult)m[k].ult=t.date;
+      const k=t.pessoa.trim();if(!m[k])m[k]={nome:k,gerado:0,gasto:0,aReceber:0,aPagar:0,n:0,ult:t.date};
+      if(t.type==="entrada"){m[k].gerado+=t.amount;m[k].aReceber+=(t.pendente||0);}
+      else{m[k].gasto+=t.amount;m[k].aPagar+=(t.pendente||0);}
+      m[k].n++;if(t.date>m[k].ult)m[k].ult=t.date;
     });
     return Object.values(m);
   },[txs]);
-  const totalReceber=mapa.reduce((s,c)=>s+c.pendente,0);
+  const totalReceber=mapa.reduce((s,c)=>s+c.aReceber,0);
+  const totalPagar=mapa.reduce((s,c)=>s+c.aPagar,0);
   const lista=mapa.filter((c)=>c.nome.toLowerCase().includes(busca.toLowerCase()))
-    .sort((a,b)=>ordem==="pendente"?b.pendente-a.pendente:ordem==="recente"?(a.ult<b.ult?1:-1):b.gerado-a.gerado);
-  const devedores=mapa.filter((c)=>c.pendente>0).sort((a,b)=>b.pendente-a.pendente);
+    .sort((a,b)=>ordem==="pendente"?(b.aReceber+b.aPagar)-(a.aReceber+a.aPagar):ordem==="recente"?(a.ult<b.ult?1:-1):b.gerado-a.gerado);
+  const receber=mapa.filter((c)=>c.aReceber>0).sort((a,b)=>b.aReceber-a.aReceber);
+  const pagar=mapa.filter((c)=>c.aPagar>0).sort((a,b)=>b.aPagar-a.aPagar);
   const fieldSm={background:C.panel2,border:`1px solid ${C.border}`,color:C.text,fontSize:12.5,borderRadius:8,padding:"6px 10px",outline:"none"};
   if(mapa.length===0)return<Panel><div style={{fontSize:13,color:C.faint,padding:16}}>Quando você registrar com o nome da pessoa (ex: "recebi 300 da Ana"), seus clientes aparecem aqui com quanto cada um gerou e quem te deve.</div></Panel>;
   return <div className="flex flex-col gap-4">
-    {devedores.length>0&&<Panel style={{borderColor:C.coral+"44"}}>
-      <div className="flex items-center justify-between mb-2"><div className="flex items-center gap-2" style={{fontSize:14,fontWeight:500}}><AlertCircle size={15} color={C.coral}/> A receber</div><div style={{fontSize:13,color:C.coral,fontWeight:600}}>{brl(totalReceber)}</div></div>
-      {devedores.slice(0,6).map((c,i)=><div key={c.nome} className="flex items-center justify-between py-1.5" style={{fontSize:13,borderTop:i?`1px solid ${C.border}`:"none"}}><span>{c.nome}</span><span style={{color:C.coral,fontWeight:600}}>{brl(c.pendente)}</span></div>)}
-    </Panel>}
+    <div className="grid gap-4" style={{gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))"}}>
+      {receber.length>0&&<Panel style={{borderColor:C.emer+"44"}}>
+        <div className="flex items-center justify-between mb-2"><div className="flex items-center gap-2" style={{fontSize:14,fontWeight:500}}><ArrowUpRight size={15} color={C.emer}/> A receber</div><div style={{fontSize:13,color:C.emer,fontWeight:600}}>{brl(totalReceber)}</div></div>
+        {receber.slice(0,6).map((c,i)=><div key={c.nome} className="flex items-center justify-between py-1.5" style={{fontSize:13,borderTop:i?`1px solid ${C.border}`:"none"}}><span>{c.nome}</span><span style={{color:C.emer,fontWeight:600}}>{brl(c.aReceber)}</span></div>)}
+      </Panel>}
+      {pagar.length>0&&<Panel style={{borderColor:C.coral+"44"}}>
+        <div className="flex items-center justify-between mb-2"><div className="flex items-center gap-2" style={{fontSize:14,fontWeight:500}}><ArrowDownRight size={15} color={C.coral}/> A pagar</div><div style={{fontSize:13,color:C.coral,fontWeight:600}}>{brl(totalPagar)}</div></div>
+        {pagar.slice(0,6).map((c,i)=><div key={c.nome} className="flex items-center justify-between py-1.5" style={{fontSize:13,borderTop:i?`1px solid ${C.border}`:"none"}}><span>{c.nome}</span><span style={{color:C.coral,fontWeight:600}}>{brl(c.aPagar)}</span></div>)}
+      </Panel>}
+    </div>
     <Panel>
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <div className="flex items-center gap-2" style={{fontSize:14,fontWeight:500}}><Users size={16} color={C.gold}/> Seus clientes <span style={{fontSize:12,color:C.faint}}>({mapa.length})</span></div>
@@ -520,7 +529,7 @@ function Clientes({txs}) {
       {lista.map((c,i)=><div key={c.nome} className="flex items-center gap-3 py-2.5" style={{borderTop:i?`1px solid ${C.border}`:"none"}}>
         <div style={{width:34,height:34,borderRadius:"50%",background:C.panel2,border:`1px solid ${C.border}`,fontSize:13,color:C.gold,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{c.nome[0].toUpperCase()}</div>
         <div className="flex-1" style={{minWidth:0}}><div style={{fontSize:14,fontWeight:500}}>{c.nome}</div><div style={{fontSize:11.5,color:C.faint}}>{c.n} {c.n===1?"lançamento":"lançamentos"} · última {fmtD(c.ult)}</div></div>
-        <div style={{textAlign:"right",flexShrink:0}}><div style={{fontSize:14,fontWeight:600,color:C.emer}}>{brl(c.gerado)}</div>{c.pendente>0&&<div style={{fontSize:11.5,color:C.coral}}>deve {brl(c.pendente)}</div>}</div>
+        <div style={{textAlign:"right",flexShrink:0}}><div style={{fontSize:14,fontWeight:600,color:C.emer}}>{brl(c.gerado)}</div>{c.aReceber>0&&<div style={{fontSize:11.5,color:C.emer}}>a receber {brl(c.aReceber)}</div>}{c.aPagar>0&&<div style={{fontSize:11.5,color:C.coral}}>a pagar {brl(c.aPagar)}</div>}</div>
       </div>)}
       {lista.length===0&&<div style={{textAlign:"center",padding:20,color:C.faint,fontSize:13}}>Nenhum cliente com esse nome.</div>}
     </Panel>
