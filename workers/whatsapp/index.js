@@ -83,7 +83,7 @@ async function interpretar(frase, env) {
 HOJE é ${hojeISO}. Use isso para resolver datas relativas.
 Primeiro identifique a INTENÇÃO da mensagem e responda APENAS com JSON, sem markdown.
 
-Formato: {"intencao":"registrar"|"quitar"|"consulta"|"cancelar"|"editar"|"lembrete"|"cancelar_lembrete"|"emprestimo","type":"entrada"|"saida","total":number,"installments":number,"category":string,"subcategoria":string,"negocio":string,"desc":string,"pessoa":string,"pendente":number,"data":string,"edit":object,"lembrete":object,"lembrete_busca":string,"emprestimo":object}.
+Formato: {"intencao":"registrar"|"quitar"|"consulta"|"cancelar"|"editar"|"lembrete"|"cancelar_lembrete"|"emprestimo"|"pagar_fixa","type":"entrada"|"saida","total":number,"installments":number,"category":string,"subcategoria":string,"negocio":string,"desc":string,"pessoa":string,"pendente":number,"data":string,"edit":object,"lembrete":object,"lembrete_busca":string,"emprestimo":object,"fixa_busca":string}.
 
 INTENÇÃO:
 - "registrar": a pessoa está lançando uma entrada ou saída (ex.: "recebi 300 da Grasiele", "investi 200 em tráfego", "paguei 500 pro influencer", "recebi meu salário de 3000").
@@ -93,6 +93,7 @@ INTENÇÃO:
 - "consulta": a pessoa está PERGUNTANDO/PEDINDO algo sobre as finanças dela (ex.: "quanto vendi essa semana?", "meu resumo da semana", "qual produto vendeu mais?", "quanto investi em tráfego?", "qual meu lucro?", "como tá meu caixa?", "quem tá me devendo?", "minhas cobranças", "como estou?"). Nesse caso só "intencao":"consulta" importa.
 - "lembrete": a pessoa quer ser LEMBRADA de algo (remédio, tarefa, compromisso, ligar pra alguém, etc.). Ex.: "me lembra de tomar o remédio todo dia às 8h", "me lembra de ligar pro fornecedor amanhã 14h", "todo dia 8h e 20h tomar remédio", "me avisa segunda 9h da reunião". Preencha o objeto "lembrete": {"texto":"o que lembrar (curto)","horario":"HH:MM 24h","recorrencia":"once"|"diario"|"semanal"|"mensal","data":"YYYY-MM-DD se for once/data específica, senão null","dia_semana":0a6 (0=domingo) se semanal senão null,"dia_mes":1a31 se mensal senão null}. Se a pessoa der vários horários, crie um por horário (mas aqui retorne o primeiro; o sistema repete). Se não disser horário, use "09:00".
 - "cancelar_lembrete": a pessoa quer PARAR um lembrete (ex.: "para de me lembrar do remédio", "cancela o lembrete da academia"). Preencha "lembrete_busca" com palavras-chave do lembrete.
+- "pagar_fixa": a pessoa quer DAR BAIXA / marcar como PAGA uma DESPESA FIXA já cadastrada (ex.: "dar baixa na despesa fixa do hostinger", "paguei a hospedagem hostinger", "a conta de luz das despesas fixas foi paga", "baixa o aluguel das fixas hoje"). Preencha "fixa_busca" com o nome da despesa (ex.: "hostinger", "aluguel", "luz").
 - "emprestimo": a pessoa pegou um EMPRÉSTIMO/FINANCIAMENTO ou parcelou para ter dinheiro (ex.: "peguei 4647 emprestado no cartão e vou pagar 5x de 1000", "fiz um empréstimo de 10 mil, 10 parcelas de 1200", "antecipei recebíveis"). Preencha "emprestimo": {"recebido":number (quanto ENTROU no caixa agora),"parcelas":number,"valorParcela":number (valor de CADA parcela a pagar),"desc":"origem (ex: Cartão de crédito, Banco X)"}. Se a pessoa der o total a pagar em vez do valor da parcela, calcule valorParcela = total/parcelas.
 
 Campos para registrar/quitar:
@@ -120,7 +121,7 @@ Campos para registrar/quitar:
   const total = Number(j.total) || 0;
   const installments = Math.max(1, Number(j.installments) || 1);
   const dataOk = /^\d{4}-\d{2}-\d{2}$/.test(j.data || "") ? j.data : hojeISO;
-  return { intencao: j.intencao || "registrar", valid: total > 0, type: j.type === "entrada" ? "entrada" : "saida", total, installments, valorParcela: total / installments, category: j.category || "Outros", subcategoria: (j.subcategoria || "").trim() || null, negocio: (j.negocio || "").trim() || null, desc: j.desc || frase.trim(), pessoa: (j.pessoa || "").trim() || null, pendente: Number(j.pendente) > 0 ? Number(j.pendente) : null, data: dataOk, lembrarDiasAntes: Number(j.lembrar_dias_antes) > 0 ? Math.min(30, Number(j.lembrar_dias_antes)) : null, edit: j.edit || null, lembrete: j.lembrete || null, lembreteBusca: (j.lembrete_busca || "").trim() || null, emprestimo: j.emprestimo || null };
+  return { intencao: j.intencao || "registrar", valid: total > 0, type: j.type === "entrada" ? "entrada" : "saida", total, installments, valorParcela: total / installments, category: j.category || "Outros", subcategoria: (j.subcategoria || "").trim() || null, negocio: (j.negocio || "").trim() || null, desc: j.desc || frase.trim(), pessoa: (j.pessoa || "").trim() || null, pendente: Number(j.pendente) > 0 ? Number(j.pendente) : null, data: dataOk, lembrarDiasAntes: Number(j.lembrar_dias_antes) > 0 ? Math.min(30, Number(j.lembrar_dias_antes)) : null, edit: j.edit || null, lembrete: j.lembrete || null, lembreteBusca: (j.lembrete_busca || "").trim() || null, emprestimo: j.emprestimo || null, fixaBusca: (j.fixa_busca || "").trim() || null };
 }
 
 // ─── Q&A: responde perguntas financeiras consultando os dados do cliente ───
@@ -200,6 +201,26 @@ async function buscarPendencias(pessoa, clienteId, env) {
   });
   const rows = await r.json();
   return Array.isArray(rows) ? rows : [];
+}
+
+// ─── DESPESAS FIXAS (dar baixa pelo WhatsApp) ───
+async function buscarDespesaFixa(busca, clienteId, env) {
+  const q = encodeURIComponent(`*${busca}*`);
+  const r = await fetch(`${env.SUPABASE_URL}/rest/v1/despesas_fixas?cliente_id=eq.${clienteId}&ativa=eq.true&nome=ilike.${q}&select=id,nome,valor,pago_mes&limit=5`, {
+    headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+  });
+  const rows = await r.json();
+  return Array.isArray(rows) ? rows : [];
+}
+async function pagarDespesaFixaW(despesa, clienteId, env) {
+  const mes = new Date().toISOString().slice(0, 7);
+  const ok = await gravarLancamentos([{ cliente_id: clienteId, tipo: "saida", valor: Number(despesa.valor), categoria: "Despesa fixa", subcategoria: despesa.nome, descricao: despesa.nome, data: new Date().toISOString().slice(0, 10), fixa: true, grupo_parcela: null, parcela_atual: null, parcela_total: null, origem: "whatsapp" }], env);
+  if (ok) await fetch(`${env.SUPABASE_URL}/rest/v1/despesas_fixas?id=eq.${despesa.id}`, {
+    method: "PATCH",
+    headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify({ pago_mes: mes }),
+  });
+  return ok;
 }
 
 // ─── LEMBRETES ───
@@ -464,13 +485,25 @@ async function processarMensagem(body, env) {
 
     // menu de ajuda (oi, menu, ajuda) — descoberta das funções, sem custo de IA
     if (/^\s*(oi+|ol[áa]|menu|ajuda|help|come[çc]ar|in[íi]cio|comandos|o que (voc[êe]|tu) faz|como funciona)\s*[!?.]*\s*$/i.test(texto)) {
-      await enviar(telefone, `Oi! 👋 Sou seu assistente do *Organize-C Finance*. Comigo você pode, por áudio ou texto:\n\n📥 *Registrar* — "recebi 300 da Ana pela harmonização" / "gastei 50 de gasolina" / "investi 200 em tráfego"\n📅 *Datas* — "ontem", "dia 5/06", "10/07 vou receber 1000"\n✅ *Quitação* — "a Ana quitou"\n❌ *Cancelar* — "a cliente cancelou e quer o dinheiro de volta"\n✏️ *Corrigir* — "era 500, não 50"\n\nE me *perguntar* quando quiser:\n📊 "meu resumo da semana"\n💰 "como tá meu caixa?"\n🔔 "quem tá me devendo?"\n🏆 "qual produto vendeu mais?"\n📈 "qual meu lucro esse mês?"\n\n🔔 E posso te *lembrar* de coisas:\n"me lembra de tomar o remédio todo dia às 8h"\n"me lembra de ligar pro fornecedor amanhã 14h"\n("meus lembretes" pra ver / "cancela o lembrete X")\n\nÉ só mandar! 💛`, env);
+      await enviar(telefone, `Oi! 👋 Sou seu assistente do *Organize-C Finance*. Comigo você pode, por áudio ou texto:\n\n📥 *Registrar* — "recebi 300 da Ana pela harmonização" / "gastei 50 de gasolina" / "investi 200 em tráfego"\n📅 *Datas* — "ontem", "dia 5/06", "10/07 vou receber 1000"\n✅ *Quitação* — "a Ana quitou"\n❌ *Cancelar* — "a cliente cancelou e quer o dinheiro de volta"\n✏️ *Corrigir* — "era 500, não 50"\n\nE me *perguntar* quando quiser:\n📊 "meu resumo da semana"\n💰 "como tá meu caixa?"\n🔔 "quem tá me devendo?"\n🏆 "qual produto vendeu mais?"\n📈 "qual meu lucro esse mês?"\n\n🔔 E posso te *lembrar* de coisas:\n"me lembra de tomar o remédio todo dia às 8h"\n("meus lembretes" pra ver / "cancela o lembrete X")\n\n🧾 *Despesa fixa:* "dar baixa no hostinger das fixas"\n💳 *Empréstimo:* "peguei 5000 emprestado, 5x de 1000"\n\nÉ só mandar! 💛`, env);
       return;
     }
 
     console.log("Texto interpretado:", texto);
     const p = await interpretar(texto, env);
     console.log("Resultado IA:", JSON.stringify(p));
+
+    // ─── dar baixa em despesa fixa: "paguei o hostinger das fixas" ───
+    if (p.intencao === "pagar_fixa" && p.fixaBusca) {
+      const achados = await buscarDespesaFixa(p.fixaBusca, cliente.id, env);
+      if (!achados.length) { await enviar(telefone, `Não achei uma despesa fixa com *${p.fixaBusca}*. Confere o nome ou cadastra no painel. 🙂`, env); return; }
+      const d = achados[0];
+      const mes = new Date().toISOString().slice(0, 7);
+      if (d.pago_mes === mes) { await enviar(telefone, `A despesa fixa *${d.nome}* já está marcada como paga esse mês. ✅`, env); return; }
+      const ok = await pagarDespesaFixaW(d, cliente.id, env);
+      await enviar(telefone, ok ? `Baixa feita! ✅ *${d.nome}* (${fmtBRL(Number(d.valor))}) marcada como paga e registrada como saída no caixa.` : "Ops, não consegui dar baixa. Tenta de novo?", env);
+      return;
+    }
 
     // ─── empréstimo/financiamento: entra no caixa + parcelas a pagar ───
     if (p.intencao === "emprestimo" && p.emprestimo) {
