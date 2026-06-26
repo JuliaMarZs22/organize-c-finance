@@ -83,7 +83,7 @@ async function interpretar(frase, env) {
 HOJE é ${hojeISO}. Use isso para resolver datas relativas.
 Primeiro identifique a INTENÇÃO da mensagem e responda APENAS com JSON, sem markdown.
 
-Formato: {"intencao":"registrar"|"quitar"|"consulta"|"cancelar"|"editar"|"lembrete"|"cancelar_lembrete"|"emprestimo"|"pagar_fixa","type":"entrada"|"saida","total":number,"installments":number,"category":string,"subcategoria":string,"negocio":string,"desc":string,"pessoa":string,"pendente":number,"data":string,"edit":object,"lembrete":object,"lembrete_busca":string,"emprestimo":object,"fixa_busca":string}.
+Formato: {"intencao":"registrar"|"quitar"|"consulta"|"cancelar"|"editar"|"lembrete"|"cancelar_lembrete"|"emprestimo"|"pagar_fixa","type":"entrada"|"saida","total":number,"installments":number,"category":string,"subcategoria":string,"negocio":string,"desc":string,"pessoa":string,"referencia":string,"pendente":number,"data":string,"edit":object,"lembrete":object,"lembrete_busca":string,"emprestimo":object,"fixa_busca":string}.
 
 INTENÇÃO:
 - "registrar": a pessoa está lançando uma entrada ou saída (ex.: "recebi 300 da Grasiele", "investi 200 em tráfego", "paguei 500 pro influencer", "recebi meu salário de 3000").
@@ -102,6 +102,7 @@ Campos para registrar/quitar:
 - "negocio": o NEGÓCIO/empresa a que esse lançamento pertence, se a pessoa mencionar (ex.: "vendi 500 na clínica" => "Clínica"; "gastei 200 na loja" => "Loja"; "tráfego do organize-c" => "Organize-C"). Empreendedores têm vários negócios. Se não mencionar nenhum negócio, "".
 - "desc": descrição curta e fiel do que foi.
 - "pessoa": nome de quem pagou/recebeu, se houver. Senão "".
+- "referencia": A QUE ou A QUEM o lançamento se refere, ALÉM da pessoa que recebeu/pagou. Muito importante para comissões, indicações e repasses, onde a mesma pessoa recebe vários pagamentos por motivos diferentes. Ex.: "paguei 200 de comissão pra Monaliza referente à indicação da Dra Ana Cleide" => pessoa:"Monaliza Krepe", referencia:"indicação Dra Ana Cleide"; "paguei 100 pro João pela venda do cliente Pedro" => pessoa:"João", referencia:"venda cliente Pedro". Se não houver referência distinta da pessoa, "".
 - "pendente": valor que ainda falta receber/pagar dessa transação, se mencionado. Senão 0.
 - "total": valor movimentado agora. Se for consulta ou não houver valor, 0.
 - "data": data do lançamento no formato YYYY-MM-DD. Resolva relativo a HOJE (${hojeISO}): "ontem", "anteontem", "dia 5", "5 de junho", "semana passada", "10/07", "dia 10 do mês que vem", etc. Funciona para datas PASSADAS e FUTURAS. Se a pessoa não disser data, use ${hojeISO}.
@@ -121,7 +122,7 @@ Campos para registrar/quitar:
   const total = Number(j.total) || 0;
   const installments = Math.max(1, Number(j.installments) || 1);
   const dataOk = /^\d{4}-\d{2}-\d{2}$/.test(j.data || "") ? j.data : hojeISO;
-  return { intencao: j.intencao || "registrar", valid: total > 0, type: j.type === "entrada" ? "entrada" : "saida", total, installments, valorParcela: total / installments, category: j.category || "Outros", subcategoria: (j.subcategoria || "").trim() || null, negocio: (j.negocio || "").trim() || null, desc: j.desc || frase.trim(), pessoa: (j.pessoa || "").trim() || null, pendente: Number(j.pendente) > 0 ? Number(j.pendente) : null, data: dataOk, lembrarDiasAntes: Number(j.lembrar_dias_antes) > 0 ? Math.min(30, Number(j.lembrar_dias_antes)) : null, edit: j.edit || null, lembrete: j.lembrete || null, lembreteBusca: (j.lembrete_busca || "").trim() || null, emprestimo: j.emprestimo || null, fixaBusca: (j.fixa_busca || "").trim() || null };
+  return { intencao: j.intencao || "registrar", valid: total > 0, type: j.type === "entrada" ? "entrada" : "saida", total, installments, valorParcela: total / installments, category: j.category || "Outros", subcategoria: (j.subcategoria || "").trim() || null, negocio: (j.negocio || "").trim() || null, desc: j.desc || frase.trim(), pessoa: (j.pessoa || "").trim() || null, referencia: (j.referencia || "").trim() || null, pendente: Number(j.pendente) > 0 ? Number(j.pendente) : null, data: dataOk, lembrarDiasAntes: Number(j.lembrar_dias_antes) > 0 ? Math.min(30, Number(j.lembrar_dias_antes)) : null, edit: j.edit || null, lembrete: j.lembrete || null, lembreteBusca: (j.lembrete_busca || "").trim() || null, emprestimo: j.emprestimo || null, fixaBusca: (j.fixa_busca || "").trim() || null };
 }
 
 // ─── Q&A: responde perguntas financeiras consultando os dados do cliente ───
@@ -317,6 +318,7 @@ async function zerarPendencias(ids, env) {
 function montarLancamentos(p, clienteId) {
   const base = p.data ? new Date(p.data + "T12:00:00") : new Date();
   const grupoParcela = p.installments > 1 ? crypto.randomUUID() : null;
+  const descBase = p.referencia ? `${p.desc} — ref.: ${p.referencia}` : p.desc;
   const linhas = [];
   for (let i = 0; i < p.installments; i++) {
     const d = new Date(base.getFullYear(), base.getMonth() + i, Math.min(base.getDate(), 28));
@@ -326,7 +328,7 @@ function montarLancamentos(p, clienteId) {
       categoria: p.category,
       subcategoria: p.subcategoria || null,
       negocio: p.negocio || null,
-      descricao: p.installments > 1 ? `${p.desc} — parcela ${i + 1}/${p.installments}` : p.desc,
+      descricao: p.installments > 1 ? `${descBase} — parcela ${i + 1}/${p.installments}` : descBase,
       data: d.toISOString().slice(0, 10), fixa: false,
       grupo_parcela: grupoParcela,
       parcela_atual: p.installments > 1 ? i + 1 : null,
@@ -346,7 +348,8 @@ function textoConfirmacao(p) {
   const hojeISO = new Date().toISOString().slice(0, 10);
   const dataTxt = p.data && p.data !== hojeISO ? ` em ${p.data.split("-").reverse().join("/")}` : "";
   const negTxt = p.negocio ? ` · ${p.negocio}` : "";
-  const extra = `${p.pessoa ? ` (${p.pessoa})` : ""}${negTxt}${p.pendente ? ` — falta ${p.type === "saida" ? "pagar" : "receber"} ${fmt(p.pendente)}` : ""}`;
+  const refTxt = p.referencia ? ` · ref.: ${p.referencia}` : "";
+  const extra = `${p.pessoa ? ` (${p.pessoa})` : ""}${refTxt}${negTxt}${p.pendente ? ` — falta ${p.type === "saida" ? "pagar" : "receber"} ${fmt(p.pendente)}` : ""}`;
   if (p.installments > 1) return `Anotei: *${p.installments} entradas de ${fmt(p.valorParcela)}*, uma por mês, em ${cat}${extra}. Confirma? 👍`;
   return `Registrei: *${p.type === "entrada" ? "Entrada" : "Saída"} de ${fmt(p.total)}*${dataTxt} em ${cat}${extra}. Confirma? 👍`;
 }
