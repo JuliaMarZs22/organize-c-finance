@@ -302,8 +302,8 @@ function Client({user,logout}) {
   return <div className="mx-auto px-4 py-5" style={{maxWidth:1060}}>
     {toastNode}
     <TopBar logout={logout} label="Cliente" nomeUsuario={perfil?.nome}/>
-    <div className="flex gap-1.5 mb-5 flex-wrap">
-      {TABS.map(([k,l,I])=><button key={k} onClick={()=>setTab(k)} className="flex items-center gap-2 px-3.5 py-2 rounded-lg" style={{fontSize:13,fontWeight:500,cursor:"pointer",background:tab===k?C.panel2:"transparent",color:tab===k?C.text:C.muted,border:`1px solid ${tab===k?C.border2:"transparent"}`}}><I size={15}/> {l}</button>)}
+    <div className="tabs-scroll flex gap-1.5 mb-5" style={{flexWrap:"nowrap",paddingBottom:4}}>
+      {TABS.map(([k,l,I])=><button key={k} onClick={()=>setTab(k)} className="flex items-center gap-2 px-3.5 py-2 rounded-lg" style={{fontSize:13,fontWeight:500,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,background:tab===k?C.panel2:"transparent",color:tab===k?C.text:C.muted,border:`1px solid ${tab===k?C.border2:"transparent"}`}}><I size={15}/> {l}</button>)}
     </div>
     {tab==="visao"&&<Visao calc={calc} perfil={perfil} despesas={despesas} showToast={showToast} onUpdate={recarregar} cores={cores} definirCor={definirCor}/>}
     {tab==="lancar"&&<Lancar user={user} onAdd={recarregar} showToast={showToast}/>}
