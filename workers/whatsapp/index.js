@@ -87,7 +87,7 @@ Formato: {"intencao":"registrar"|"quitar"|"consulta"|"cancelar"|"editar"|"lembre
 
 INTENÇÃO:
 - "registrar": a pessoa está lançando uma entrada ou saída (ex.: "recebi 300 da Grasiele", "investi 200 em tráfego", "paguei 500 pro influencer", "recebi meu salário de 3000").
-- "quitar": a pessoa diz que alguém QUITOU/PAGOU o que devia, sem dar valor (ex.: "a Grasiele quitou", "o João me pagou tudo"). Preencha "pessoa", total 0.
+- "quitar": a pessoa diz que alguém QUITOU/PAGOU uma dívida JÁ EXISTENTE, SEM informar o valor (ex.: "a Grasiele quitou", "o João me pagou tudo"). Preencha "pessoa", total 0. ATENÇÃO: se a mensagem TEM um valor em reais (ex.: "paguei 653,50 para a Emanuela", "recebi 300 da Ana"), NÃO é "quitar" — é "registrar" (entrada ou saída conforme o caso), mesmo que use a palavra "paguei/pagar".
 - "cancelar": a pessoa diz que uma venda/compra foi CANCELADA, ESTORNADA ou que houve PEDIDO DE DINHEIRO DE VOLTA/REEMBOLSO. Preencha "type" (entrada=venda cancelada, saida=compra cancelada), "pessoa" se houver, "total" o valor se mencionado.
 - "editar": a pessoa quer CORRIGIR/ALTERAR o ÚLTIMO lançamento (ex.: "não, era 500 não 50", "corrige pra gasolina", "muda a categoria pra saúde", "na verdade foi ontem", "o nome era Ana"). Preencha o objeto "edit" só com os campos a mudar: {"valor":number, "category":string, "subcategoria":string, "desc":string, "pessoa":string, "data":"YYYY-MM-DD", "type":"entrada"|"saida"}. Inclua APENAS os campos que a pessoa pediu para mudar; omita o resto.
 - "consulta": a pessoa está PERGUNTANDO/PEDINDO algo sobre as finanças dela (ex.: "quanto vendi essa semana?", "meu resumo da semana", "qual produto vendeu mais?", "quanto investi em tráfego?", "qual meu lucro?", "como tá meu caixa?", "quem tá me devendo?", "minhas cobranças", "como estou?"). Nesse caso só "intencao":"consulta" importa.
@@ -593,7 +593,7 @@ async function processarMensagem(body, env) {
     }
 
     // ─── quitação de pendência: "a Grasiele quitou" ───
-    if (p.intencao === "quitar" && p.pessoa) {
+    if (p.intencao === "quitar" && p.pessoa && !p.valid) {
       const pend = await buscarPendencias(p.pessoa, cliente.id, env);
       if (!pend.length) { await enviar(telefone, `Não achei nenhuma pendência em aberto de *${p.pessoa}*. Se quiser, me diga o valor que entrou.`, env); return; }
       const total = pend.reduce((s, r) => s + Number(r.valor_pendente), 0);
