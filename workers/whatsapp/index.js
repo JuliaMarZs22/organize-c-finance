@@ -127,7 +127,21 @@ Campos para registrar/quitar:
 }
 
 // ─── Q&A: responde perguntas financeiras consultando os dados do cliente ───
-async function responderConsulta(pergunta, clienteId, env) {
+// limite de ANÁLISES PROFUNDAS (GPT-4o) por cliente/dia — protege o custo.
+// Consultas simples (mini) e registro de entradas/saídas NÃO são afetados.
+const LIMITE_DIAG_DIA = 5;
+async function quotaDiagnostico(env, telefone) {
+  try {
+    const dia = new Date().toISOString().slice(0, 10);
+    const chave = `quota:diag:${telefone}:${dia}`;
+    const usados = Number((await env.PENDENTES.get(chave)) || 0);
+    if (usados >= LIMITE_DIAG_DIA) return { ok: false, usados };
+    await env.PENDENTES.put(chave, String(usados + 1), { expirationTtl: 172800 });
+    return { ok: true, usados: usados + 1 };
+  } catch (_) { return { ok: true, usados: 0 }; } // em falha do KV, não bloqueia
+}
+
+async function responderConsulta(pergunta, clienteId, env, telefone) {
   const r = await fetch(`${env.SUPABASE_URL}/rest/v1/lancamentos?cliente_id=eq.${clienteId}&cancelado=eq.false&select=tipo,valor,categoria,subcategoria,negocio,descricao,pessoa,valor_pendente,data&order=data.desc&limit=400`, {
     headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
   });
@@ -196,6 +210,13 @@ Os dados trazem: caixaAtual, custoFixo (mensal), entradas/saídas/lucro do mês 
 Sempre que fizer sentido, dê 1 conselho prático (capacidade de investir, onde cortar, cobrar quem deve). Formate como R$ 1.234,56. Não invente números — se faltar dado, diga o que falta lançar pra análise ficar mais precisa. Use *negrito* do WhatsApp.`;
   // perguntas de diagnóstico aberto merecem um modelo mais capaz de raciocinar
   const ehDiagnostico = /situa[çc][ãa]o financeira|pra onde foi|para onde foi|onde.*(furo|errando|melhorar)|faturei.*(negativo|vermelho)|estilo de vida|padr[ãa]o (emocional|de vida|de gasto)|me d[êe].*(conselho|orienta)|an[áa]lise (sincera|completa|profunda|honesta)|pr[óo].?labore|quanto.*(retir|me pagar|tirar pra mim)|como (voc[êe]|vc) (descreve|avalia|v[êe]).*(situa|finan)/i.test(pergunta);
+  // diagnóstico profundo roda no GPT-4o (caro): limita por dia pra controlar o custo
+  if (ehDiagnostico && telefone) {
+    const q = await quotaDiagnostico(env, telefone);
+    if (!q.ok) {
+      return `Opa! 🙌 Você usou suas *${LIMITE_DIAG_DIA} análises profundas* de hoje (aquelas mais detalhadas, de diagnóstico e conselhos). Elas são pesadas, por isso têm um limite diário.\n\n👉 Amanhã ele zera e você pode pedir de novo.\n\nEnquanto isso, *tudo o mais continua funcionando normal*: registrar entradas e saídas, dar baixa em despesa, e perguntas rápidas (quanto vendi, meu caixa, quem me deve...). Quer mais análises agora? Fala com a gente sobre o *plano com créditos extras*. 💛`;
+    }
+  }
   const rr = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.OPENAI_API_KEY}` },
@@ -571,7 +592,7 @@ async function processarMensagem(body, env) {
 
     // ─── consulta/pergunta: "quanto vendi esse mês?" ───
     if (p.intencao === "consulta") {
-      const resposta = await responderConsulta(texto, cliente.id, env);
+      const resposta = await responderConsulta(texto, cliente.id, env, telefone);
       await enviar(telefone, resposta, env);
       return;
     }
