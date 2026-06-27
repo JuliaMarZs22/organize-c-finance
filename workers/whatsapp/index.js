@@ -77,7 +77,32 @@ async function transcrever(audioBuf, env) {
   return (j.text || "").trim();
 }
 
-async function interpretar(frase, env) {
+// ─── LOG DE USO DE IA (custo por cliente) ───
+// preços USD por 1 milhão de tokens (entrada / saída)
+const PRECOS = {
+  "gpt-4o-mini": { in: 0.15, out: 0.60 },
+  "gpt-4o":      { in: 2.50, out: 10.0 },
+};
+function custoUSD(modelo, usage) {
+  const p = PRECOS[modelo]; if (!p || !usage) return 0;
+  return (Number(usage.prompt_tokens || 0) * p.in + Number(usage.completion_tokens || 0) * p.out) / 1e6;
+}
+async function logUso(env, { clienteId, telefone, tipo, modelo, usage }) {
+  try {
+    await fetch(`${env.SUPABASE_URL}/rest/v1/uso_ia`, {
+      method: "POST",
+      headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+      body: JSON.stringify({
+        cliente_id: clienteId || null, telefone: telefone || null, tipo, modelo,
+        prompt_tokens: Number(usage?.prompt_tokens || 0),
+        completion_tokens: Number(usage?.completion_tokens || 0),
+        custo_usd: Number(custoUSD(modelo, usage).toFixed(6)),
+      }),
+    });
+  } catch (_) {} // log nunca pode quebrar o fluxo principal
+}
+
+async function interpretar(frase, env, ctx) {
   const hojeISO = new Date().toISOString().slice(0, 10);
   const SYSTEM = `Você é o cérebro de um assistente financeiro brasileiro para empreendedores e autônomos.
 HOJE é ${hojeISO}. Use isso para resolver datas relativas.
@@ -119,6 +144,7 @@ Campos para registrar/quitar:
     }),
   });
   const data = await r.json();
+  if (ctx) await logUso(env, { clienteId: ctx.clienteId, telefone: ctx.telefone, tipo: "parse", modelo: "gpt-4o-mini", usage: data.usage });
   const j = JSON.parse(data.choices[0].message.content);
   const total = Number(j.total) || 0;
   const installments = Math.max(1, Number(j.installments) || 1);
@@ -229,6 +255,8 @@ Sempre que fizer sentido, dê 1 conselho prático (capacidade de investir, onde 
     }),
   });
   const data = await rr.json();
+  const modeloUsado = ehDiagnostico ? "gpt-4o" : "gpt-4o-mini";
+  await logUso(env, { clienteId, telefone, tipo: ehDiagnostico ? "diagnostico" : "consulta", modelo: modeloUsado, usage: data.usage });
   return (data.choices?.[0]?.message?.content || "Não consegui analisar agora, tenta de novo? 🙂").trim();
 }
 
@@ -531,7 +559,7 @@ async function processarMensagem(body, env) {
     }
 
     console.log("Texto interpretado:", texto);
-    const p = await interpretar(texto, env);
+    const p = await interpretar(texto, env, { clienteId: cliente.id, telefone });
     console.log("Resultado IA:", JSON.stringify(p));
 
     // ─── dar baixa em despesa fixa: "paguei o hostinger das fixas" ───
