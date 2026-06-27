@@ -102,7 +102,7 @@ Campos para registrar/quitar:
 - "negocio": o NEGÓCIO/empresa a que esse lançamento pertence, se a pessoa mencionar (ex.: "vendi 500 na clínica" => "Clínica"; "gastei 200 na loja" => "Loja"; "tráfego do organize-c" => "Organize-C"). Empreendedores têm vários negócios. Se não mencionar nenhum negócio, "".
 - "desc": descrição curta e fiel do que foi.
 - "pessoa": nome do CLIENTE/pessoa/empresa envolvida no lançamento (quem pagou numa entrada, quem recebeu numa saída). Capture mesmo quando o nome vier SOLTO, sem "de/da/do" (ex.: "Entrada 997, Agropecuária Medeiros, negócio organize-c" => pessoa:"Agropecuária Medeiros"; "vendi 500 pra clínica X" => pessoa:"Clínica X"; "recebi 300, cliente João" => pessoa:"João"). Não confunda com "negocio" (a SUA empresa). Se não houver nome de cliente/pessoa, "".
-- "referencia": A QUE ou A QUEM o lançamento se refere, ALÉM da pessoa que recebeu/pagou. Muito importante para comissões, indicações e repasses, onde a mesma pessoa recebe vários pagamentos por motivos diferentes. Ex.: "paguei 200 de comissão pra Monaliza referente à indicação da Dra Ana Cleide" => pessoa:"Monaliza Krepe", referencia:"indicação Dra Ana Cleide"; "paguei 100 pro João pela venda do cliente Pedro" => pessoa:"João", referencia:"venda cliente Pedro". Se não houver referência distinta da pessoa, "".
+- "referencia": A QUE ou A QUEM o lançamento se refere, ALÉM da pessoa que recebeu/pagou. Muito importante para comissões, indicações e repasses, onde a mesma pessoa recebe vários pagamentos por motivos diferentes. Ex.: "paguei 200 de comissão pra Monaliza referente à indicação da Dra Ana Cleide" => pessoa:"Monaliza Krepe", referencia:"indicação Dra Ana Cleide"; "paguei 100 pro João pela venda do cliente Pedro" => pessoa:"João", referencia:"venda cliente Pedro". TAMBÉM use para o BENEFICIÁRIO de um gasto pessoal/familiar, pra dar rastreio (ex.: "compra de tênis para filho Noah" => subcategoria:"Tênis", referencia:"filho Noah"; "remédio da minha mãe" => referencia:"mãe"; "presente da esposa" => referencia:"esposa"). Se não houver referência distinta da pessoa, "".
 - "pendente": valor que ainda falta receber/pagar dessa transação, se mencionado. Senão 0.
 - "total": valor movimentado agora. Se for consulta ou não houver valor, 0.
 - "data": data do lançamento no formato YYYY-MM-DD. Resolva relativo a HOJE (${hojeISO}): "ontem", "anteontem", "dia 5", "5 de junho", "semana passada", "10/07", "dia 10 do mês que vem", etc. Funciona para datas PASSADAS e FUTURAS. Se a pessoa não disser data, use ${hojeISO}.
@@ -150,7 +150,7 @@ async function responderConsulta(pergunta, clienteId, env) {
 
   const hoje = new Date(); const hojeI = hoje.toISOString().slice(0, 10); const mesAtual = hojeI.slice(0, 7);
   const seteDias = new Date(hoje.getTime() - 7 * 86400000).toISOString().slice(0, 10);
-  const resumo = { hoje: hojeI, mesAtual, custoFixo, totalEntradas: 0, totalSaidas: 0, entradasMes: 0, saidasMes: 0, entradasSemana: 0, saidasSemana: 0, caixaAtual: saldoInicial, porSubcategoria: {}, porCategoria: {}, porNegocio: {}, pendentes: [] };
+  const resumo = { hoje: hojeI, mesAtual, custoFixo, totalEntradas: 0, totalSaidas: 0, entradasMes: 0, saidasMes: 0, entradasSemana: 0, saidasSemana: 0, caixaAtual: saldoInicial, porSubcategoria: {}, porCategoria: {}, porNegocio: {}, pendentes: [], transacoes: [] };
   for (const t of rows) {
     const v = Number(t.valor); const noMes = (t.data || "").slice(0, 7) === mesAtual; const naSemana = (t.data || "") >= seteDias && (t.data || "") <= hojeI; const realizado = (t.data || "") <= hojeI;
     if (t.tipo === "entrada") { resumo.totalEntradas += v; if (noMes) resumo.entradasMes += v; if (naSemana) resumo.entradasSemana += v; if (realizado) resumo.caixaAtual += v; }
@@ -161,6 +161,8 @@ async function responderConsulta(pergunta, clienteId, env) {
     resumo.porCategoria[ck] = (resumo.porCategoria[ck] || 0) + v;
     if (t.negocio) { const nk = `${t.tipo}:${t.negocio}`; resumo.porNegocio[nk] = (resumo.porNegocio[nk] || 0) + v; }
     if (Number(t.valor_pendente) > 0) resumo.pendentes.push({ pessoa: t.pessoa, desc: t.descricao, pendente: Number(t.valor_pendente) });
+    // lista enxuta das últimas transações p/ o analista filtrar por pessoa/beneficiário/descrição livre
+    if (resumo.transacoes.length < 120) resumo.transacoes.push({ data: t.data, tipo: t.tipo, valor: v, item: t.subcategoria || t.categoria || "Outros", pessoa: t.pessoa || "", desc: t.descricao || "" });
   }
   resumo.lucroTotal = resumo.totalEntradas - resumo.totalSaidas;
   resumo.lucroMes = resumo.entradasMes - resumo.saidasMes;
@@ -176,6 +178,7 @@ Os dados trazem: caixaAtual, custoFixo (mensal), entradas/saídas/lucro do mês 
 - Se perguntarem "quem me deve / cobranças": liste os pendentes (pessoa + valor) e o totalAReceber.
 - Se perguntarem o que mais vendeu: use porSubcategoria (entrada).
 - Se a pessoa tiver vários negócios e perguntar por um ("quanto vendi na clínica?", "lucro da loja"): use porNegocio (formato "tipo:Negocio").
+- Se perguntarem por um NOME, PESSOA ou BENEFICIÁRIO ("quanto gastei com o Noah esse mês?", "quanto paguei pra Monaliza?", "gastos com minha mãe"): varra a lista "transacoes" (campos pessoa, item e desc) somando as que mencionam esse nome no período pedido. A referência/beneficiário fica dentro de "desc" (ex.: "ref.: filho Noah"). Liste os itens encontrados (data, item, valor) e o total. Se não achar nenhum, diga que não encontrou gastos com esse nome.
 - Se houver metaFaturamento/metaLucro > 0 e perguntarem da "meta": compare com entradasMes/lucroMes, diga o % atingido e quanto falta.
 - Se houver impostoPct > 0 e perguntarem de imposto/reserva: diga para reservar reservaImpostoSugerida (impostoPct% do que entrou no mês). Se prolaboreAlvo > 0 e perguntarem de pró-labore/retirada: informe o alvo e quanto já foi retirado.
 Sempre que fizer sentido, dê 1 conselho prático (capacidade de investir, onde cortar, cobrar quem deve). Formate como R$ 1.234,56. Não invente números. Use *negrito* do WhatsApp.`;
