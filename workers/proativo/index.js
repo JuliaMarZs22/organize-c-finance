@@ -161,11 +161,14 @@ async function rotinaVencimentos(env) {
     // despesas fixas com dia de vencimento (avisa na véspera)
     const amanha = new Date(new Date(hoje + "T12:00:00").getTime() + 86400000);
     const diaAmanha = amanha.getDate();
-    const dfr = await fetch(`${env.SUPABASE_URL}/rest/v1/despesas_fixas?cliente_id=eq.${c.id}&ativa=eq.true&dia_vencimento=not.is.null&select=nome,valor,dia_vencimento`, {
+    const mesVenc = amanha.toISOString().slice(0, 7); // mês do vencimento (YYYY-MM)
+    const dfr = await fetch(`${env.SUPABASE_URL}/rest/v1/despesas_fixas?cliente_id=eq.${c.id}&ativa=eq.true&dia_vencimento=not.is.null&select=nome,valor,dia_vencimento,pago_mes`, {
       headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
     });
     for (const df of (await dfr.json() || [])) {
-      if (Number(df.dia_vencimento) === diaAmanha) avisos.push(`${df.nome} ${fmt(df.valor)} (vence amanhã)`);
+      if (Number(df.dia_vencimento) !== diaAmanha) continue;
+      if (df.pago_mes === mesVenc) continue; // já pagou esse mês — não lembra
+      avisos.push(`${df.nome} ${fmt(df.valor)} (vence amanhã)`);
     }
 
     if (avisos.length) {
