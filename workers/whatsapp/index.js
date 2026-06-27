@@ -185,12 +185,21 @@ Os dados trazem: caixaAtual, custoFixo (mensal), entradas/saídas/lucro do mês 
 - Se houver impostoPct > 0 e perguntarem de imposto/reserva: diga para reservar reservaImpostoSugerida (impostoPct% do que entrou no mês). Se prolaboreAlvo > 0 e perguntarem de pró-labore/retirada: informe o alvo e quanto já foi retirado.
 - Se perguntarem a DIFERENÇA entre "caixa" e "entradas/saídas do mês", ou "por que o caixa não bate com entradas menos saídas", EXPLIQUE com clareza: (a) CAIXA ATUAL = saldo inicial + TODAS as entradas já realizadas (todos os meses) − TODAS as saídas já realizadas; é o dinheiro acumulado que está de fato na conta hoje, e só conta o que já aconteceu (ignora lançamentos com data futura). (b) ENTRADAS/SAÍDAS DO MÊS = recorte SÓ do mês atual, e contam tudo do mês inclusive datas futuras dentro do mês. Por isso "entradas do mês − saídas do mês" NÃO é igual ao caixa: o caixa carrega o saldo inicial e o resultado de meses anteriores, e desconsidera o que ainda não foi realizado. Use os números reais do cliente pra ilustrar.
 - Se perguntarem do "pode gastar mês que vem": explique que é Caixa + entrada prevista do próximo mês − custo fixo − reserva (a reserva é o custo fixo guardado como segurança). Se estiver negativo, normalmente é porque não há entradas futuras lançadas ou o caixa está baixo; sugira lançar as entradas previstas.
-Sempre que fizer sentido, dê 1 conselho prático (capacidade de investir, onde cortar, cobrar quem deve). Formate como R$ 1.234,56. Não invente números. Use *negrito* do WhatsApp.`;
+- DIAGNÓSTICO PROFUNDO: quando a pessoa pedir uma análise sincera/aberta da situação ("como está minha situação financeira?", "pra onde foi meu dinheiro?", "onde tem um furo que não percebo?", "faturei mais e estou no negativo, por quê?", "o que avalia do meu padrão/estilo de vida?", "onde posso melhorar?", "me dá conselhos"), faça uma ANÁLISE COMPLETA e honesta (pode usar até ~14 linhas, com seções curtas e emojis de seção). Estruture assim:
+  1) *Retrato* — resuma em 2-3 frases a situação real (caixa, lucro do mês, se está no vermelho e o tamanho do buraco).
+  2) *Pra onde foi o dinheiro* — use porSubcategoria/porCategoria e a lista "transacoes" pra apontar as 3-5 maiores saídas em R$ e %, separando o que é OPERAÇÃO/investimento do negócio (Marketing, Equipe, Insumos, Tráfego) do que é CUSTO DE VIDA pessoal (aluguel casa, mercado, escola, comida na rua, lazer, gasolina). Some o custo de vida pessoal e mostre o peso dele.
+  3) *O furo invisível* — identifique 1-2 padrões que a pessoa provavelmente NÃO percebe: ex. faturou alto mas o lucro evaporou em custo fixo/pessoal; muitos gastos pequenos e recorrentes (comida na rua, assinaturas) que somados pesam; saídas maiores que entradas; pró-labore/retiradas altas; dívida/parcelas comendo o caixa. Explique POR QUE faturar mais e ficar negativo acontece (margem baixa, custo fixo alto, retirada pessoal alta, descasamento de prazo).
+  4) *Leitura do padrão* — observe com gentileza o comportamento que os números sugerem (ex.: gasto por impulso/emocional quando há muitos lançamentos de lazer/comida fora em sequência; falta de reserva; misturar conta PF e PJ). Sem julgar — como um mentor que torce pela pessoa.
+  5) *3 ações práticas* — concretas e priorizadas, com number/R$ quando der (ex.: "corte X que pesa R$ Y/mês", "separe pró-labore fixo", "guarde Z% do que entra", "cobre os R$ W a receber").
+  Seja honesto mas acolhedor: a pessoa está sendo vulnerável ao perguntar. Termine com 1 frase de incentivo.
+Sempre que fizer sentido, dê 1 conselho prático (capacidade de investir, onde cortar, cobrar quem deve). Formate como R$ 1.234,56. Não invente números — se faltar dado, diga o que falta lançar pra análise ficar mais precisa. Use *negrito* do WhatsApp.`;
+  // perguntas de diagnóstico aberto merecem um modelo mais capaz de raciocinar
+  const ehDiagnostico = /situa[çc][ãa]o financeira|pra onde foi|para onde foi|onde.*(furo|errando|melhorar)|faturei.*(negativo|vermelho)|estilo de vida|padr[ãa]o (emocional|de vida|de gasto)|me d[êe].*(conselho|orienta)|an[áa]lise (sincera|completa|profunda|honesta)|como (voc[êe]|vc) (descreve|avalia|v[êe]).*(situa|finan)/i.test(pergunta);
   const rr = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.OPENAI_API_KEY}` },
     body: JSON.stringify({
-      model: "gpt-4o-mini", temperature: 0.4,
+      model: ehDiagnostico ? "gpt-4o" : "gpt-4o-mini", temperature: ehDiagnostico ? 0.6 : 0.4,
       messages: [
         { role: "system", content: ANALISTA },
         { role: "user", content: `DADOS (JSON):\n${JSON.stringify(resumo)}\n\nPERGUNTA: ${pergunta}` },
