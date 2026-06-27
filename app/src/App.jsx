@@ -266,7 +266,9 @@ function Client({user,logout}) {
     // classifica cada saída em Negócio (operação) x Pessoal (custo de vida) x Outros
     const CAT_NEGOCIO=new Set(["Marketing","Equipe","Insumos","Impostos","Investimento"]);
     const CAT_PESSOAL=new Set(["Alimentação","Moradia","Transporte","Saúde","Assinaturas","Lazer","Pró-labore"]);
-    const baldeSaida=(t)=>{if(t.category==="Empréstimo")return"outros";if(CAT_NEGOCIO.has(t.category)||t.negocio)return"negocio";if(CAT_PESSOAL.has(t.category))return"pessoal";return"outros";};
+    // despesa fixa carrega tipo pj (negócio) / pf (pessoal) — usa pra jogar no balde certo
+    const fixaTipo={};despesas.forEach((d)=>{fixaTipo[d.nome]=d.tipo||"pj";});
+    const baldeSaida=(t)=>{if(t.category==="Empréstimo")return"outros";if(t.category==="Despesa fixa"){const tp=fixaTipo[t.sub];return tp==="pf"?"pessoal":tp==="pj"?"negocio":"outros";}if(CAT_NEGOCIO.has(t.category)||t.negocio)return"negocio";if(CAT_PESSOAL.has(t.category))return"pessoal";return"outros";};
     let pessoalMes=0,negocioMes=0,outrosMes=0;
     ativos.forEach((t)=>{
       if(mk(new Date(t.date+"T12:00:00"))===cur){
