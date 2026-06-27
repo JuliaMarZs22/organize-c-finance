@@ -129,7 +129,7 @@ Campos para registrar/quitar:
 // ─── Q&A: responde perguntas financeiras consultando os dados do cliente ───
 // limite de ANÁLISES PROFUNDAS (GPT-4o) por cliente/dia — protege o custo.
 // Consultas simples (mini) e registro de entradas/saídas NÃO são afetados.
-const LIMITE_DIAG_DIA = 5;
+const LIMITE_DIAG_DIA = 3;
 async function quotaDiagnostico(env, telefone) {
   try {
     const dia = new Date().toISOString().slice(0, 10);
