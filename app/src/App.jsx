@@ -263,11 +263,16 @@ function Client({user,logout}) {
     let entradasMes=0,saidasMes=0,proLabore=0,investido=0,emprestEntMes=0,emprestSaiMes=0;const catMap={};
     const vendaSubMap={},investSubMap={};const negMap={};
     const ehEmprest=(t)=>t.category==="Empréstimo";
+    // classifica cada saída em Negócio (operação) x Pessoal (custo de vida) x Outros
+    const CAT_NEGOCIO=new Set(["Marketing","Equipe","Insumos","Impostos","Investimento"]);
+    const CAT_PESSOAL=new Set(["Alimentação","Moradia","Transporte","Saúde","Assinaturas","Lazer","Pró-labore"]);
+    const baldeSaida=(t)=>{if(t.category==="Empréstimo")return"outros";if(CAT_NEGOCIO.has(t.category)||t.negocio)return"negocio";if(CAT_PESSOAL.has(t.category))return"pessoal";return"outros";};
+    let pessoalMes=0,negocioMes=0,outrosMes=0;
     ativos.forEach((t)=>{
       if(mk(new Date(t.date+"T12:00:00"))===cur){
         if(t.negocio){if(!negMap[t.negocio])negMap[t.negocio]={entrada:0,saida:0};negMap[t.negocio][t.type]+=t.amount;}
         if(t.type==="entrada"){entradasMes+=t.amount;if(ehEmprest(t))emprestEntMes+=t.amount;const k=t.sub||t.category;vendaSubMap[k]=(vendaSubMap[k]||0)+t.amount;}
-        else{saidasMes+=t.amount;if(ehEmprest(t))emprestSaiMes+=t.amount;if(t.category==="Pró-labore")proLabore+=t.amount;else if(t.category==="Investimento")investido+=t.amount;const gk=t.sub||t.category;catMap[gk]=(catMap[gk]||0)+t.amount;if(t.category==="Marketing"||t.category==="Investimento"){const k=t.sub||t.category;investSubMap[k]=(investSubMap[k]||0)+t.amount;}}
+        else{saidasMes+=t.amount;if(ehEmprest(t))emprestSaiMes+=t.amount;if(t.category==="Pró-labore")proLabore+=t.amount;else if(t.category==="Investimento")investido+=t.amount;const gk=t.sub||t.category;catMap[gk]=(catMap[gk]||0)+t.amount;if(t.category==="Marketing"||t.category==="Investimento"){const k=t.sub||t.category;investSubMap[k]=(investSubMap[k]||0)+t.amount;}const b=baldeSaida(t);if(b==="negocio")negocioMes+=t.amount;else if(b==="pessoal")pessoalMes+=t.amount;else outrosMes+=t.amount;}
       }
     });
     const vendaSub=Object.entries(vendaSubMap).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
@@ -292,7 +297,7 @@ function Client({user,logout}) {
     const totalEmprest=ativos.filter((t)=>t.type==="entrada"&&t.category==="Empréstimo").reduce((s,t)=>s+t.amount,0);
     const totalParcelas=ativos.filter((t)=>t.type==="saida"&&t.category==="Empréstimo").reduce((s,t)=>s+t.amount,0);
     const dividas={aPagar:dividaTotal,parcelasRestantes:parcDiv.length,totalEmprestado:totalEmprest,custo:Math.max(0,totalParcelas-totalEmprest)};
-    return{caixa,entradasMes,saidasMes,fixa:totalFixo,reserva,mesesReserva,proj,prox,podeGastar,coberto,proLabore,investido,lucro,cats,vendaSub,investSub,negocios,dividas};
+    return{caixa,entradasMes,saidasMes,fixa:totalFixo,reserva,mesesReserva,proj,prox,podeGastar,coberto,proLabore,investido,lucro,cats,vendaSub,investSub,negocios,dividas,pessoalMes,negocioMes,outrosMes};
   },[txs,perfil,despesas]);
 
   if(load)return<Centro><Loader2 size={26} color={C.gold} className="animate-spin"/></Centro>;
@@ -345,6 +350,28 @@ function Visao({calc,perfil,despesas,onUpdate,showToast,cores,definirCor}) {
         </div>
       }
     </Panel>
+    {(calc.pessoalMes+calc.negocioMes+calc.outrosMes)>0&&(()=>{
+      const tot=calc.pessoalMes+calc.negocioMes+calc.outrosMes;const pct=(v)=>tot?Math.round(v/tot*100):0;
+      const itens=[{nome:"Negócio (operação)",val:calc.negocioMes,cor:C.emer},{nome:"Pessoal (custo de vida)",val:calc.pessoalMes,cor:C.coral},{nome:"Outros",val:calc.outrosMes,cor:C.faint}].filter((x)=>x.val>0);
+      const insight=calc.pessoalMes>calc.negocioMes
+        ?`Seu custo de vida pessoal é ${pct(calc.pessoalMes)}% das saídas do mês — é o que mais pesa.`
+        :`Suas saídas são puxadas pela operação do negócio (${pct(calc.negocioMes)}%).`;
+      return <Panel>
+        <div className="flex items-center justify-between mb-3"><div style={{fontSize:14,fontWeight:500}}>Pessoal × Negócio</div><div style={{fontSize:12,color:C.faint}}>saídas do mês</div></div>
+        <div className="flex w-full" style={{height:14,borderRadius:7,overflow:"hidden",background:C.panel2}}>
+          {itens.map((x)=><div key={x.nome} title={`${x.nome}: ${brl(x.val)}`} style={{width:`${pct(x.val)}%`,background:x.cor}}/>)}
+        </div>
+        <div className="flex flex-col mt-3">
+          {itens.map((x,i)=><div key={x.nome} className="flex items-center" style={{fontSize:13,padding:"5px 0",borderTop:i?`1px solid ${C.border}`:"none"}}>
+            <span style={{width:11,height:11,borderRadius:3,background:x.cor,display:"inline-block",flexShrink:0,marginRight:8}}/>
+            <span style={{flexShrink:0}}>{x.nome}</span>
+            <div style={{flex:1,margin:"0 8px",borderBottom:`1px dotted ${C.border2}`,transform:"translateY(2px)",minWidth:14}}/>
+            <span style={{color:C.muted,flexShrink:0,fontVariantNumeric:"tabular-nums"}}>{brl(x.val)} · {pct(x.val)}%</span>
+          </div>)}
+        </div>
+        <div style={{fontSize:12.5,color:C.muted,lineHeight:1.5,marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border2}`}}>{insight}</div>
+      </Panel>;
+    })()}
     {despesas.length>0&&<Panel>
       <div style={{fontSize:14,fontWeight:500,marginBottom:10}}>Despesas fixas mensais</div>
       {despesas.map((d,i)=><div key={d.id} className="flex items-center justify-between py-1.5" style={{fontSize:13,borderTop:i?`1px solid ${C.border}`:"none"}}><span style={{color:C.muted}}>{d.nome}</span><span style={{color:C.coral}}>{brl(d.valor)}</span></div>)}
