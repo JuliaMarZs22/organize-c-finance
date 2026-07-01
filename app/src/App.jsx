@@ -14,8 +14,11 @@ import {
   carregarLancamentos, inserirLancamentos, carregarClientes,
   carregarDespesasFixas, inserirDespesaFixa, excluirDespesaFixa, editarDespesaFixa, pagarDespesaFixa,
   atualizarSaldoInicial, atualizarCliente, editarLancamento, renomearPessoa, ajustarPendentePessoa,
-  carregarMeta, salvarMeta, salvarPlanejamento, carregarCores, salvarCor,
+  carregarMeta, salvarMeta, salvarPlanejamento, carregarCores, salvarCor, registrarOptin,
 } from "./supabase";
+
+// texto exato do consentimento — guardado junto com o aceite como prova (política Meta)
+const OPTIN_TEXTO = "Autorizo o Organize-C Finance a me enviar mensagens no WhatsApp (registros, resumos e lembretes que eu solicitar). Sei que posso cancelar quando quiser respondendo \"parar\".";
 import { sincronizarManual } from "./drive";
 
 /* ─── PALETA ─────────────────────────────────────────────────────── */
@@ -72,6 +75,22 @@ const Brand=({size=17})=><div className="flex items-center gap-2.5">
 </div>;
 
 /* ─── APP ROOT ────────────────────────────────────────────────────── */
+// Modal de consentimento (opt-in) para mensagens no WhatsApp — aparece no 1º acesso
+function OptinModal({onDone,showToast}) {
+  const[hidden,setHidden]=useState(false);const[load,setLoad]=useState(false);
+  if(hidden)return null;
+  const autorizar=async()=>{setLoad(true);const{error}=await registrarOptin(OPTIN_TEXTO);setLoad(false);if(error)return showToast("Não consegui salvar, tenta de novo.","error");showToast("Autorização registrada! ✅");onDone&&onDone();};
+  return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",zIndex:50,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div style={{background:C.panel,border:`1px solid ${C.border2}`,borderRadius:16,maxWidth:440,width:"100%",padding:24}}>
+      <div style={{fontSize:26,marginBottom:8}}>💬</div>
+      <div style={{fontSize:17,fontWeight:600,color:C.text,marginBottom:8}}>Ative o assistente no WhatsApp</div>
+      <div style={{fontSize:13.5,color:C.muted,lineHeight:1.55,marginBottom:14}}>{OPTIN_TEXTO}</div>
+      <button onClick={autorizar} disabled={load} style={{width:"100%",background:C.emer,color:"#04120a",border:"none",borderRadius:10,padding:"12px",fontSize:14,fontWeight:600,cursor:"pointer",opacity:load?.6:1}}>{load?"Salvando...":"Autorizar e ativar 💛"}</button>
+      <button onClick={()=>setHidden(true)} style={{width:"100%",background:"transparent",color:C.faint,border:"none",padding:"10px",fontSize:12.5,cursor:"pointer",marginTop:4}}>Agora não</button>
+    </div>
+  </div>;
+}
+
 export default function App() {
   const[screen,setScreen]=useState("loading");
   const[user,setUser]=useState(null);
@@ -313,6 +332,7 @@ function Client({user,logout}) {
 
   return <div className="mx-auto px-4 py-5" style={{maxWidth:1060}}>
     {toastNode}
+    {perfil&&perfil.whatsapp_optin===false&&<OptinModal onDone={recarregar} showToast={showToast}/>}
     <TopBar logout={logout} label="Cliente" nomeUsuario={perfil?.nome}/>
     <div className="tabs-scroll flex gap-1.5 mb-5" style={{flexWrap:"nowrap",paddingBottom:4}}>
       {TABS.map(([k,l,I])=><button key={k} onClick={()=>setTab(k)} className="flex items-center gap-2 px-3.5 py-2 rounded-lg" style={{fontSize:13,fontWeight:500,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,background:tab===k?C.panel2:"transparent",color:tab===k?C.text:C.muted,border:`1px solid ${tab===k?C.border2:"transparent"}`}}><I size={15}/> {l}</button>)}

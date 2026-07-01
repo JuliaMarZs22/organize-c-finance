@@ -75,6 +75,15 @@ export async function salvarPlanejamento(imposto_pct, prolabore_alvo) {
   const { error } = await supabase.from("clientes").update({ imposto_pct, prolabore_alvo }).eq("id", user.id);
   return { error };
 }
+// registra o consentimento (opt-in) do cliente para mensagens no WhatsApp
+export async function registrarOptin(texto) {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: new Error("não autenticado") };
+  const { error } = await supabase.from("clientes")
+    .update({ whatsapp_optin: true, optin_em: new Date().toISOString(), optin_texto: texto })
+    .eq("id", user.id);
+  return { error };
+}
 export async function carregarCores() {
   const { data } = await supabase.from("cores_itens").select("nome, cor");
   const map = {}; (data || []).forEach((r) => { map[r.nome] = r.cor; });
