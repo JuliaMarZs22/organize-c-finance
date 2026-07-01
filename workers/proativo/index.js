@@ -81,7 +81,7 @@ function resumir(lancs, de, ate) {
 }
 
 const isoAdd = (days) => { const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0, 10); };
-const hojeISO = () => new Date().toISOString().slice(0, 10);
+const hojeISO = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
 const PAINEL = (env) => env.PAINEL_URL || "https://organize-c-finance.pages.dev";
 
 // ── Resumo semanal + cobrança + alerta ──

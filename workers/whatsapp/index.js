@@ -5,6 +5,12 @@
 // ============================================================
 
 const soDigitos = (s) => (s || "").replace(/\D/g, "");
+
+// ── Datas SEMPRE no fuso de Brasília (UTC-3) ──
+// Usar UTC dava bug: lançamento feito depois das 21h caía no dia seguinte.
+const TZ_BR = "America/Sao_Paulo";
+const hojeBR = () => new Date().toLocaleDateString("en-CA", { timeZone: TZ_BR }); // "YYYY-MM-DD"
+const mesBR = () => hojeBR().slice(0, 7); // "YYYY-MM"
 const ehConfirmar = (t) => /\b(sim|confirma|confirmar|isso|pode|ok|1)\b/i.test(t) || /👍/.test(t);
 const ehCancelar  = (t) => /\b(n[ãa]o|cancela|errado|descarta|2)\b/i.test(t);
 
@@ -103,7 +109,7 @@ async function logUso(env, { clienteId, telefone, tipo, modelo, usage }) {
 }
 
 async function interpretar(frase, env, ctx) {
-  const hojeISO = new Date().toISOString().slice(0, 10);
+  const hojeISO = hojeBR();
   const SYSTEM = `Você é o cérebro de um assistente financeiro brasileiro para empreendedores e autônomos.
 HOJE é ${hojeISO}. Use isso para resolver datas relativas.
 Primeiro identifique a INTENÇÃO da mensagem e responda APENAS com JSON, sem markdown.
@@ -159,7 +165,7 @@ Campos para registrar/quitar:
 const LIMITE_DIAG_DIA = 3;
 async function quotaDiagnostico(env, telefone) {
   try {
-    const dia = new Date().toISOString().slice(0, 10);
+    const dia = hojeBR();
     const chave = `quota:diag:${telefone}:${dia}`;
     const usados = Number((await env.PENDENTES.get(chave)) || 0);
     if (usados >= LIMITE_DIAG_DIA) return { ok: false, usados };
@@ -185,13 +191,13 @@ async function responderConsulta(pergunta, clienteId, env, telefone) {
   } catch (_) {}
   let metaFat = 0, metaLuc = 0;
   try {
-    const mesAtual0 = new Date().toISOString().slice(0, 7);
+    const mesAtual0 = mesBR();
     const mr = await fetch(`${env.SUPABASE_URL}/rest/v1/metas?cliente_id=eq.${clienteId}&mes=eq.${mesAtual0}&select=meta_faturamento,meta_lucro`, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } });
     const mm = (await mr.json())?.[0]; metaFat = Number(mm?.meta_faturamento || 0); metaLuc = Number(mm?.meta_lucro || 0);
   } catch (_) {}
 
-  const hoje = new Date(); const hojeI = hoje.toISOString().slice(0, 10); const mesAtual = hojeI.slice(0, 7);
-  const seteDias = new Date(hoje.getTime() - 7 * 86400000).toISOString().slice(0, 10);
+  const hojeI = hojeBR(); const mesAtual = mesBR();
+  const seteDias = new Date(new Date(hojeI + "T12:00:00Z").getTime() - 7 * 86400000).toISOString().slice(0, 10);
   const resumo = { hoje: hojeI, mesAtual, custoFixo, totalEntradas: 0, totalSaidas: 0, entradasMes: 0, saidasMes: 0, entradasSemana: 0, saidasSemana: 0, caixaAtual: saldoInicial, porSubcategoria: {}, porCategoria: {}, porNegocio: {}, pendentes: [], transacoes: [] };
   for (const t of rows) {
     const v = Number(t.valor); const realizado = (t.data || "") <= hojeI; const noMes = (t.data || "").slice(0, 7) === mesAtual && realizado; const naSemana = (t.data || "") >= seteDias && (t.data || "") <= hojeI;
@@ -281,8 +287,8 @@ async function buscarDespesaFixa(busca, clienteId, env) {
   return Array.isArray(rows) ? rows : [];
 }
 async function pagarDespesaFixaW(despesa, clienteId, env) {
-  const mes = new Date().toISOString().slice(0, 7);
-  const ok = await gravarLancamentos([{ cliente_id: clienteId, tipo: "saida", valor: Number(despesa.valor), categoria: "Despesa fixa", subcategoria: despesa.nome, descricao: despesa.nome, data: new Date().toISOString().slice(0, 10), fixa: true, grupo_parcela: null, parcela_atual: null, parcela_total: null, origem: "whatsapp" }], env);
+  const mes = mesBR();
+  const ok = await gravarLancamentos([{ cliente_id: clienteId, tipo: "saida", valor: Number(despesa.valor), categoria: "Despesa fixa", subcategoria: despesa.nome, descricao: despesa.nome, data: hojeBR(), fixa: true, grupo_parcela: null, parcela_atual: null, parcela_total: null, origem: "whatsapp" }], env);
   if (ok) await fetch(`${env.SUPABASE_URL}/rest/v1/despesas_fixas?id=eq.${despesa.id}`, {
     method: "PATCH",
     headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
@@ -412,7 +418,7 @@ function montarLancamentos(p, clienteId) {
 function textoConfirmacao(p) {
   const fmt = (n) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   const cat = p.subcategoria ? `${p.subcategoria}` : p.category;
-  const hojeISO = new Date().toISOString().slice(0, 10);
+  const hojeISO = hojeBR();
   const dataTxt = p.data && p.data !== hojeISO ? ` em ${p.data.split("-").reverse().join("/")}` : "";
   const negTxt = p.negocio ? ` · ${p.negocio}` : "";
   const refTxt = p.referencia ? ` · ref.: ${p.referencia}` : "";
@@ -529,7 +535,7 @@ async function processarMensagem(body, env) {
         if (pendente.tipo === "liquidacao") {
           // direção: se a pendência era saída (você devia), a quitação é SAÍDA; se entrada, ENTRADA
           const dir = pendente.dirSaida ? "saida" : "entrada";
-          const linha = [{ cliente_id: cliente.id, tipo: dir, valor: Number(pendente.total.toFixed(2)), categoria: pendente.category || (dir === "saida" ? "Outros" : "Vendas"), descricao: `${dir === "saida" ? "Pagamento" : "Quitação"} — ${pendente.pessoa}`, data: new Date().toISOString().slice(0, 10), fixa: false, pessoa: pendente.pessoa, origem: "whatsapp" }];
+          const linha = [{ cliente_id: cliente.id, tipo: dir, valor: Number(pendente.total.toFixed(2)), categoria: pendente.category || (dir === "saida" ? "Outros" : "Vendas"), descricao: `${dir === "saida" ? "Pagamento" : "Quitação"} — ${pendente.pessoa}`, data: hojeBR(), fixa: false, pessoa: pendente.pessoa, origem: "whatsapp" }];
           const ok = await gravarLancamentos(linha, env);
           if (ok) await zerarPendencias(pendente.ids, env);
           await pendDel(env, telefone);
@@ -568,7 +574,7 @@ async function processarMensagem(body, env) {
       const achados = await buscarDespesaFixa(p.fixaBusca, cliente.id, env);
       if (!achados.length) { await enviar(telefone, `Não achei uma despesa fixa com *${p.fixaBusca}*. Confere o nome ou cadastra no painel. 🙂`, env); return; }
       const d = achados[0];
-      const mes = new Date().toISOString().slice(0, 7);
+      const mes = mesBR();
       if (d.pago_mes === mes) { await enviar(telefone, `A despesa fixa *${d.nome}* já está marcada como paga esse mês. ✅`, env); return; }
       const ok = await pagarDespesaFixaW(d, cliente.id, env);
       await enviar(telefone, ok ? `Baixa feita! ✅ *${d.nome}* (${fmtBRL(Number(d.valor))}) marcada como paga e registrada como saída no caixa.` : "Ops, não consegui dar baixa. Tenta de novo?", env);
@@ -583,9 +589,9 @@ async function processarMensagem(body, env) {
       const vParc = Number(e.valorParcela) || 0;
       if (recebido <= 0 || vParc <= 0) { await enviar(telefone, "Me diz quanto entrou e o valor das parcelas. Ex: \"peguei 4647 emprestado, 5x de 1000\".", env); return; }
       const desc = (e.desc || "Empréstimo").trim();
-      const hoje = new Date();
+      const hoje = new Date(hojeBR() + "T12:00:00Z"); // meio-dia UTC na data BR: getMonth/Date corretos
       const grupo = crypto.randomUUID();
-      const linhas = [{ cliente_id: cliente.id, tipo: "entrada", valor: Number(recebido.toFixed(2)), categoria: "Empréstimo", subcategoria: desc, descricao: `Empréstimo — ${desc}`, data: hoje.toISOString().slice(0, 10), fixa: false, grupo_parcela: grupo, parcela_atual: null, parcela_total: null, origem: "whatsapp" }];
+      const linhas = [{ cliente_id: cliente.id, tipo: "entrada", valor: Number(recebido.toFixed(2)), categoria: "Empréstimo", subcategoria: desc, descricao: `Empréstimo — ${desc}`, data: hojeBR(), fixa: false, grupo_parcela: grupo, parcela_atual: null, parcela_total: null, origem: "whatsapp" }];
       for (let i = 0; i < parcelas; i++) {
         const d = new Date(hoje.getFullYear(), hoje.getMonth() + i + 1, Math.min(hoje.getDate(), 28));
         linhas.push({ cliente_id: cliente.id, tipo: "saida", valor: Number(vParc.toFixed(2)), categoria: "Empréstimo", subcategoria: desc, descricao: `Parcela ${i + 1}/${parcelas} — ${desc}`, data: d.toISOString().slice(0, 10), fixa: false, grupo_parcela: grupo, parcela_atual: i + 1, parcela_total: parcelas, origem: "whatsapp" });
