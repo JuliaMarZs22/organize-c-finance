@@ -579,6 +579,18 @@ async function processarMensagem(body, env) {
           await enviar(telefone, `Feito! ✅ ${pendente.label} marcada como *cancelada*. Tirei ${fmtBRL(pendente.total)} do somatório, mas o registro fica no histórico.`, env);
           return;
         }
+        if (pendente.tipo === "baixa_fixa") {
+          const ok = await pagarDespesaFixaW(pendente.despesa, cliente.id, env);
+          await pendDel(env, telefone);
+          await enviar(telefone, ok ? `Baixa feita! ✅ *${pendente.despesa.nome}* (${fmtBRL(Number(pendente.despesa.valor))}) marcada como paga e registrada como saída no caixa.` : "Ops, não consegui dar baixa. Tenta de novo?", env);
+          return;
+        }
+        if (pendente.tipo === "gravar") {
+          const ok = await gravarLancamentos(pendente.linhas, env);
+          await pendDel(env, telefone);
+          await enviar(telefone, ok ? (pendente.msgOk || "Salvo! ✅ Já atualizei seu painel.") : "Ops, não consegui salvar. Tenta de novo?", env);
+          return;
+        }
         const linhas = montarLancamentos(pendente, cliente.id);
         const ok = await gravarLancamentos(linhas, env);
         await pendDel(env, telefone);
@@ -615,8 +627,8 @@ async function processarMensagem(body, env) {
       const d = achados[0];
       const mes = mesBR();
       if (d.pago_mes === mes) { await enviar(telefone, `A despesa fixa *${d.nome}* já está marcada como paga esse mês. ✅`, env); return; }
-      const ok = await pagarDespesaFixaW(d, cliente.id, env);
-      await enviar(telefone, ok ? `Baixa feita! ✅ *${d.nome}* (${fmtBRL(Number(d.valor))}) marcada como paga e registrada como saída no caixa.` : "Ops, não consegui dar baixa. Tenta de novo?", env);
+      await pendSet(env, telefone, { tipo: "baixa_fixa", despesa: { id: d.id, nome: d.nome, valor: d.valor } });
+      await enviar(telefone, `Dar baixa em *${d.nome}* (${fmtBRL(Number(d.valor))}) e registrar como *saída* no caixa? Confirma? 👍`, env);
       return;
     }
 
@@ -635,9 +647,10 @@ async function processarMensagem(body, env) {
         const d = new Date(hoje.getFullYear(), hoje.getMonth() + i + 1, Math.min(hoje.getDate(), 28));
         linhas.push({ cliente_id: cliente.id, tipo: "saida", valor: Number(vParc.toFixed(2)), categoria: "Empréstimo", subcategoria: desc, descricao: `Parcela ${i + 1}/${parcelas} — ${desc}`, data: d.toISOString().slice(0, 10), fixa: false, grupo_parcela: grupo, parcela_atual: i + 1, parcela_total: parcelas, origem: "whatsapp" });
       }
-      const ok = await gravarLancamentos(linhas, env);
       const totalPagar = vParc * parcelas; const custo = totalPagar - recebido;
-      await enviar(telefone, ok ? `Empréstimo anotado! 💵 Entrou *${fmtBRL(recebido)}* no caixa. Você vai pagar *${parcelas}x de ${fmtBRL(vParc)}* (total ${fmtBRL(totalPagar)}${custo > 0 ? `, custo de ${fmtBRL(custo)} em juros` : ""}). Não conto isso como lucro — é dívida. 👍` : "Ops, não consegui salvar. Tenta de novo?", env);
+      const msgOk = `Empréstimo anotado! 💵 Entrou *${fmtBRL(recebido)}* no caixa. Você vai pagar *${parcelas}x de ${fmtBRL(vParc)}* (total ${fmtBRL(totalPagar)}${custo > 0 ? `, custo de ${fmtBRL(custo)} em juros` : ""}). Não conto isso como lucro — é dívida. 👍`;
+      await pendSet(env, telefone, { tipo: "gravar", linhas, msgOk });
+      await enviar(telefone, `Vou registrar: entrada de *${fmtBRL(recebido)}* + *${parcelas} parcelas de ${fmtBRL(vParc)}* a pagar (total ${fmtBRL(totalPagar)}). Confirma? 👍`, env);
       return;
     }
 
