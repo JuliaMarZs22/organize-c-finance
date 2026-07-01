@@ -258,7 +258,10 @@ function Client({user,logout}) {
   useEffect(()=>{recarregar();},[recarregar]);
 
   const calc=useMemo(()=>{
-    const NOW=today();const cur=mk(NOW);const realized=(d)=>new Date(d+"T12:00:00")<=NOW;
+    const NOW=today();const cur=mk(NOW);
+    // compara SÓ por data (YYYY-MM-DD), sem hora — senão lançamentos de hoje somem de manhã
+    const hojeStr=`${NOW.getFullYear()}-${String(NOW.getMonth()+1).padStart(2,"0")}-${String(NOW.getDate()).padStart(2,"0")}`;
+    const realized=(d)=>(d||"")<=hojeStr;
     const ativos=txs.filter((t)=>!t.cancelado); // cancelados não entram no somatório
     let entradasMes=0,saidasMes=0,proLabore=0,investido=0,emprestEntMes=0,emprestSaiMes=0;const catMap={};
     const vendaSubMap={},investSubMap={};const negMap={};
