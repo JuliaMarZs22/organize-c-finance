@@ -349,17 +349,23 @@ async function ultimoLancamento(clienteId, env) {
   return Array.isArray(rows) && rows[0] ? rows[0] : null;
 }
 
-// acha o lançamento a editar por referência (palavra e/ou valor). Senão, o último.
+// acha o lançamento a editar por referência (palavras e/ou valor). Senão, o último.
+const STOP_EDIT = new Set(["de","do","da","o","a","com","reais","real","r$","entrada","saida","saída","lancamento","lançamento","gasto","compra","venda","pagamento","pra","para","pro","corrige","corrigir","muda","mudar","aquele","aquela","esse","essa","valor","data"]);
 async function buscarParaEditar(busca, clienteId, env) {
   const valor = (() => { const m = (busca || "").replace(/\./g, "").match(/(\d+,\d{2}|\d+)/); return m ? Number(m[1].replace(",", ".")) : null; })();
-  const kw = (busca || "").replace(/[\d.,]+/g, " ").replace(/\b(de|do|da|o|a|com|reais|real|r\$)\b/gi, " ").trim();
-  let url = `${env.SUPABASE_URL}/rest/v1/lancamentos?cliente_id=eq.${clienteId}&cancelado=eq.false&select=id,tipo,valor,categoria,subcategoria,descricao,pessoa,data&order=criado_em.desc&limit=25`;
-  if (kw) { const q = encodeURIComponent(`*${kw}*`); url += `&or=(subcategoria.ilike.${q},descricao.ilike.${q},categoria.ilike.${q},pessoa.ilike.${q})`; }
-  const r = await fetch(url, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } });
+  const tokens = (busca || "").toLowerCase().replace(/[\d.,]+/g, " ").split(/\s+/).filter((w) => w.length >= 3 && !STOP_EDIT.has(w));
+  const r = await fetch(`${env.SUPABASE_URL}/rest/v1/lancamentos?cliente_id=eq.${clienteId}&cancelado=eq.false&select=id,tipo,valor,categoria,subcategoria,descricao,pessoa,data&order=criado_em.desc&limit=30`, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } });
   const rows = await r.json();
   if (!Array.isArray(rows) || !rows.length) return null;
-  if (valor != null) { const exato = rows.find((t) => Math.abs(Number(t.valor) - valor) < 0.01); if (exato) return exato; }
-  return rows[0];
+  const scored = rows.map((t) => {
+    const hay = `${t.subcategoria || ""} ${t.descricao || ""} ${t.categoria || ""} ${t.pessoa || ""}`.toLowerCase();
+    const nome = tokens.filter((w) => hay.includes(w)).length;
+    const val = valor != null && Math.abs(Number(t.valor) - valor) < 0.01 ? 1 : 0;
+    return { t, score: nome * 2 + val };
+  }).filter((x) => x.score > 0);
+  if (!scored.length) return null; // pediu referência mas nada casou → não edita às cegas
+  scored.sort((a, b) => b.score - a.score); // já vem por criado_em desc, então empate = mais recente
+  return scored[0].t;
 }
 
 // aplica edição a um lançamento
