@@ -271,7 +271,9 @@ function Client({user,logout}) {
     const baldeSaida=(t)=>{if(t.category==="Empréstimo")return"outros";if(t.category==="Despesa fixa"){const tp=fixaTipo[t.sub];return tp==="pf"?"pessoal":tp==="pj"?"negocio":"outros";}if(CAT_NEGOCIO.has(t.category)||t.negocio)return"negocio";if(CAT_PESSOAL.has(t.category))return"pessoal";return"outros";};
     let pessoalMes=0,negocioMes=0,outrosMes=0;
     ativos.forEach((t)=>{
-      if(mk(new Date(t.date+"T12:00:00"))===cur){
+      // "do mês" conta só o que JÁ aconteceu (data <= hoje); parcelas/compromissos futuros
+      // não são deduzidos como saída — eles aparecem na projeção e no painel de Dívidas.
+      if(mk(new Date(t.date+"T12:00:00"))===cur && realized(t.date)){
         if(t.negocio){if(!negMap[t.negocio])negMap[t.negocio]={entrada:0,saida:0};negMap[t.negocio][t.type]+=t.amount;}
         if(t.type==="entrada"){entradasMes+=t.amount;if(ehEmprest(t))emprestEntMes+=t.amount;const k=t.sub||t.category;vendaSubMap[k]=(vendaSubMap[k]||0)+t.amount;}
         else{saidasMes+=t.amount;if(ehEmprest(t))emprestSaiMes+=t.amount;if(t.category==="Pró-labore")proLabore+=t.amount;else if(t.category==="Investimento")investido+=t.amount;const gk=t.sub||t.category;catMap[gk]=(catMap[gk]||0)+t.amount;if(t.category==="Marketing"||t.category==="Investimento"){const k=t.sub||t.category;investSubMap[k]=(investSubMap[k]||0)+t.amount;}const b=baldeSaida(t);if(b==="negocio")negocioMes+=t.amount;else if(b==="pessoal")pessoalMes+=t.amount;else outrosMes+=t.amount;}

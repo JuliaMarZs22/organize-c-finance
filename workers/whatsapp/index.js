@@ -194,7 +194,7 @@ async function responderConsulta(pergunta, clienteId, env, telefone) {
   const seteDias = new Date(hoje.getTime() - 7 * 86400000).toISOString().slice(0, 10);
   const resumo = { hoje: hojeI, mesAtual, custoFixo, totalEntradas: 0, totalSaidas: 0, entradasMes: 0, saidasMes: 0, entradasSemana: 0, saidasSemana: 0, caixaAtual: saldoInicial, porSubcategoria: {}, porCategoria: {}, porNegocio: {}, pendentes: [], transacoes: [] };
   for (const t of rows) {
-    const v = Number(t.valor); const noMes = (t.data || "").slice(0, 7) === mesAtual; const naSemana = (t.data || "") >= seteDias && (t.data || "") <= hojeI; const realizado = (t.data || "") <= hojeI;
+    const v = Number(t.valor); const realizado = (t.data || "") <= hojeI; const noMes = (t.data || "").slice(0, 7) === mesAtual && realizado; const naSemana = (t.data || "") >= seteDias && (t.data || "") <= hojeI;
     if (t.tipo === "entrada") { resumo.totalEntradas += v; if (noMes) resumo.entradasMes += v; if (naSemana) resumo.entradasSemana += v; if (realizado) resumo.caixaAtual += v; }
     else { resumo.totalSaidas += v; if (noMes) resumo.saidasMes += v; if (naSemana) resumo.saidasSemana += v; if (realizado) resumo.caixaAtual -= v; }
     const sk = `${t.tipo}:${t.subcategoria || t.categoria || "Outros"}`;
