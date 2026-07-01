@@ -114,7 +114,7 @@ async function interpretar(frase, env, ctx) {
 HOJE é ${hojeISO}. Use isso para resolver datas relativas.
 Primeiro identifique a INTENÇÃO da mensagem e responda APENAS com JSON, sem markdown.
 
-Formato: {"intencao":"registrar"|"quitar"|"consulta"|"cancelar"|"editar"|"lembrete"|"cancelar_lembrete"|"emprestimo"|"pagar_fixa","type":"entrada"|"saida","total":number,"installments":number,"category":string,"subcategoria":string,"negocio":string,"desc":string,"pessoa":string,"referencia":string,"pendente":number,"data":string,"edit":object,"edit_busca":string,"lembrete":object,"lembrete_busca":string,"emprestimo":object,"fixa_busca":string}.
+Formato: {"intencao":"registrar"|"quitar"|"consulta"|"cancelar"|"editar"|"lembrete"|"cancelar_lembrete"|"emprestimo"|"pagar_fixa"|"criar_fixa","type":"entrada"|"saida","total":number,"installments":number,"category":string,"subcategoria":string,"negocio":string,"desc":string,"pessoa":string,"referencia":string,"pendente":number,"data":string,"edit":object,"edit_busca":string,"lembrete":object,"lembrete_busca":string,"emprestimo":object,"fixa_busca":string,"fixa":object}.
 
 INTENÇÃO:
 - "registrar": a pessoa está lançando uma entrada ou saída (ex.: "recebi 300 da Grasiele", "investi 200 em tráfego", "paguei 500 pro influencer", "recebi meu salário de 3000").
@@ -124,6 +124,7 @@ INTENÇÃO:
 - "consulta": a pessoa está PERGUNTANDO/PEDINDO algo sobre as finanças dela (ex.: "quanto vendi essa semana?", "meu resumo da semana", "qual produto vendeu mais?", "quanto investi em tráfego?", "qual meu lucro?", "como tá meu caixa?", "quem tá me devendo?", "minhas cobranças", "como estou?"). TAMBÉM é consulta quando a pessoa PERGUNTA SE algo JÁ FOI REGISTRADO/LANÇADO/CONFIRMADO (verificação), ex.: "já confirmou a saída de 15 de junho pra contadora de 200 reais?", "você lançou aquela venda da Ana?", "ficou registrado o pagamento do aluguel?", "tá lá a entrada de 500?". Isso é PERGUNTA, não um novo lançamento nem quitação. Nesse caso só "intencao":"consulta" importa.
 - "lembrete": a pessoa quer ser LEMBRADA de algo (remédio, tarefa, compromisso, ligar pra alguém, etc.). Ex.: "me lembra de tomar o remédio todo dia às 8h", "me lembra de ligar pro fornecedor amanhã 14h", "todo dia 8h e 20h tomar remédio", "me avisa segunda 9h da reunião". Preencha o objeto "lembrete": {"texto":"o que lembrar (curto)","horario":"HH:MM 24h","recorrencia":"once"|"diario"|"semanal"|"mensal","data":"YYYY-MM-DD se for once/data específica, senão null","dia_semana":0a6 (0=domingo) se semanal senão null,"dia_mes":1a31 se mensal senão null}. Se a pessoa der vários horários, crie um por horário (mas aqui retorne o primeiro; o sistema repete). Se não disser horário, use "09:00".
 - "cancelar_lembrete": a pessoa quer PARAR um lembrete (ex.: "para de me lembrar do remédio", "cancela o lembrete da academia"). Preencha "lembrete_busca" com palavras-chave do lembrete.
+- "criar_fixa": a pessoa quer CADASTRAR uma NOVA despesa fixa/mensal recorrente (ex.: "cadastra uma despesa fixa: aluguel 2600 todo dia 10, pessoal", "adiciona despesa fixa do contador 400 dia 5", "tenho uma mensalidade fixa de internet 120 todo mês", "cria uma conta fixa da academia 150 pessoal"). Preencha o objeto "fixa": {"nome":string (o item, ex.: "Aluguel", "Contador", "Internet"), "valor":number, "dia":number (dia do vencimento 1-31, ou null se não disser), "tipo":"pj" (empresa/negócio) ou "pf" (pessoal); se não der pra saber, use "pj"}. NÃO confunda com dar baixa (pagar_fixa) nem com um gasto avulso (registrar). É "criar_fixa" quando a pessoa quer CADASTRAR algo que se repete todo mês.
 - "pagar_fixa": a pessoa quer DAR BAIXA / marcar como PAGA uma DESPESA FIXA já cadastrada (ex.: "dar baixa na despesa fixa do hostinger", "paguei a hospedagem hostinger", "a conta de luz das despesas fixas foi paga", "baixa o aluguel das fixas hoje"). Preencha "fixa_busca" com o nome da despesa (ex.: "hostinger", "aluguel", "luz").
 - "emprestimo": a pessoa pegou um EMPRÉSTIMO/FINANCIAMENTO ou parcelou para TER DINHEIRO AGORA (ex.: "peguei 4647 emprestado no cartão e vou pagar 5x de 1000", "fiz um empréstimo de 10 mil, 10 parcelas de 1200", "antecipei recebíveis"). Preencha "emprestimo": {"recebido":number (quanto ENTROU no caixa agora),"parcelas":number,"valorParcela":number (valor de CADA parcela a pagar),"desc":"origem (ex: Cartão de crédito, Banco X)"}. Se a pessoa der o total a pagar em vez do valor da parcela, calcule valorParcela = total/parcelas. ATENÇÃO CRÍTICA: só é "emprestimo" se DINHEIRO ENTROU no caixa agora (a pessoa RECEBEU um valor). Se a pessoa NÃO recebeu nada e apenas TEM QUE PAGAR algo parcelado (uma dívida a quitar, um acordo, uma compra no boleto), isso NÃO é emprestimo — é "registrar" com parcelas a pagar (ver abaixo).
 - DÍVIDA/PAGAMENTO PARCELADO (a pagar, nada entra): quando a pessoa vai PAGAR algo em VÁRIAS PARCELAS e NADA entrou no caixa (ex.: "tenho que pagar 2800 ao Jandison em 5 parcelas, primeira dia 15/07", "todo dia 15 de julho a novembro pago 560 pro fulano", "parcelei a compra em 3x de 100", "devo 1500 e vou pagar em 3 vezes"), use intencao "registrar", type "saida", "installments" = número de parcelas, "total" = valor TOTAL da dívida (o sistema divide pelo nº de parcelas automaticamente — NÃO ponha o valor da parcela em total), "data" = data da PRIMEIRA parcela, "pessoa" = quem vai receber, "category" = "Dívida". O sistema gera uma saída por mês a partir dessa data. NÃO crie lembrete pra isso — são lançamentos reais.
@@ -156,7 +157,7 @@ Campos para registrar/quitar:
   const total = Number(j.total) || 0;
   const installments = Math.max(1, Number(j.installments) || 1);
   const dataOk = /^\d{4}-\d{2}-\d{2}$/.test(j.data || "") ? j.data : hojeISO;
-  return { intencao: j.intencao || "registrar", valid: total > 0, type: j.type === "entrada" ? "entrada" : "saida", total, installments, valorParcela: total / installments, category: j.category || "Outros", subcategoria: (j.subcategoria || "").trim() || null, negocio: (j.negocio || "").trim() || null, desc: j.desc || frase.trim(), pessoa: (j.pessoa || "").trim() || null, referencia: (j.referencia || "").trim() || null, pendente: Number(j.pendente) > 0 ? Number(j.pendente) : null, data: dataOk, lembrarDiasAntes: Number(j.lembrar_dias_antes) > 0 ? Math.min(30, Number(j.lembrar_dias_antes)) : null, edit: j.edit || null, editBusca: (j.edit_busca || "").trim() || null, lembrete: j.lembrete || null, lembreteBusca: (j.lembrete_busca || "").trim() || null, emprestimo: j.emprestimo || null, fixaBusca: (j.fixa_busca || "").trim() || null };
+  return { intencao: j.intencao || "registrar", valid: total > 0, type: j.type === "entrada" ? "entrada" : "saida", total, installments, valorParcela: total / installments, category: j.category || "Outros", subcategoria: (j.subcategoria || "").trim() || null, negocio: (j.negocio || "").trim() || null, desc: j.desc || frase.trim(), pessoa: (j.pessoa || "").trim() || null, referencia: (j.referencia || "").trim() || null, pendente: Number(j.pendente) > 0 ? Number(j.pendente) : null, data: dataOk, lembrarDiasAntes: Number(j.lembrar_dias_antes) > 0 ? Math.min(30, Number(j.lembrar_dias_antes)) : null, edit: j.edit || null, editBusca: (j.edit_busca || "").trim() || null, lembrete: j.lembrete || null, lembreteBusca: (j.lembrete_busca || "").trim() || null, emprestimo: j.emprestimo || null, fixaBusca: (j.fixa_busca || "").trim() || null, fixa: j.fixa || null };
 }
 
 // ─── Q&A: responde perguntas financeiras consultando os dados do cliente ───
@@ -285,6 +286,16 @@ async function buscarDespesaFixa(busca, clienteId, env) {
   });
   const rows = await r.json();
   return Array.isArray(rows) ? rows : [];
+}
+async function criarDespesaFixaW(fixa, clienteId, env) {
+  const dia = Number(fixa.dia) >= 1 && Number(fixa.dia) <= 31 ? Number(fixa.dia) : null;
+  const tipo = fixa.tipo === "pf" ? "pf" : "pj";
+  const r = await fetch(`${env.SUPABASE_URL}/rest/v1/despesas_fixas`, {
+    method: "POST",
+    headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify({ cliente_id: clienteId, nome: fixa.nome, valor: Number(fixa.valor), dia_vencimento: dia, tipo, ativa: true }),
+  });
+  return { ok: r.ok, dia, tipo };
 }
 async function pagarDespesaFixaW(despesa, clienteId, env) {
   const mes = mesBR();
@@ -580,13 +591,22 @@ async function processarMensagem(body, env) {
 
     // menu de ajuda (oi, menu, ajuda) — descoberta das funções, sem custo de IA
     if (/^\s*(oi+|ol[áa]|menu|ajuda|help|come[çc]ar|in[íi]cio|comandos|o que (voc[êe]|tu) faz|como funciona)\s*[!?.]*\s*$/i.test(texto)) {
-      await enviar(telefone, `Oi! 👋 Sou seu assistente do *Organize-C Finance*. Comigo você pode, por áudio ou texto:\n\n📥 *Registrar* — "recebi 300 da Ana pela harmonização" / "gastei 50 de gasolina" / "investi 200 em tráfego"\n📅 *Datas* — "ontem", "dia 5/06", "10/07 vou receber 1000"\n✅ *Quitação* — "a Ana quitou"\n❌ *Cancelar* — "a cliente cancelou e quer o dinheiro de volta"\n✏️ *Corrigir* — "era 500, não 50"\n\nE me *perguntar* quando quiser:\n📊 "meu resumo da semana"\n💰 "como tá meu caixa?"\n🔔 "quem tá me devendo?"\n🏆 "qual produto vendeu mais?"\n📈 "qual meu lucro esse mês?"\n\n🔔 E posso te *lembrar* de coisas:\n"me lembra de tomar o remédio todo dia às 8h"\n("meus lembretes" pra ver / "cancela o lembrete X")\n\n🧾 *Despesa fixa:* "dar baixa no hostinger das fixas"\n💳 *Empréstimo:* "peguei 5000 emprestado, 5x de 1000"\n\nÉ só mandar! 💛`, env);
+      await enviar(telefone, `Oi! 👋 Sou seu assistente do *Organize-C Finance*. Comigo você pode, por áudio ou texto:\n\n📥 *Registrar* — "recebi 300 da Ana pela harmonização" / "gastei 50 de gasolina" / "investi 200 em tráfego"\n📅 *Datas* — "ontem", "dia 5/06", "10/07 vou receber 1000"\n✅ *Quitação* — "a Ana quitou"\n❌ *Cancelar* — "a cliente cancelou e quer o dinheiro de volta"\n✏️ *Corrigir* — "era 500, não 50"\n\nE me *perguntar* quando quiser:\n📊 "meu resumo da semana"\n💰 "como tá meu caixa?"\n🔔 "quem tá me devendo?"\n🏆 "qual produto vendeu mais?"\n📈 "qual meu lucro esse mês?"\n\n🔔 E posso te *lembrar* de coisas:\n"me lembra de tomar o remédio todo dia às 8h"\n("meus lembretes" pra ver / "cancela o lembrete X")\n\n🧾 *Despesa fixa:* "cadastra despesa fixa aluguel 2600 dia 10 pessoal" · "dar baixa no aluguel das fixas"\n💳 *Empréstimo:* "peguei 5000 emprestado, 5x de 1000"\n\nÉ só mandar! 💛`, env);
       return;
     }
 
     console.log("Texto interpretado:", texto);
     const p = await interpretar(texto, env, { clienteId: cliente.id, telefone });
     console.log("Resultado IA:", JSON.stringify(p));
+
+    // ─── cadastrar nova despesa fixa: "cadastra despesa fixa aluguel 2600 dia 10 pessoal" ───
+    if (p.intencao === "criar_fixa" && p.fixa && p.fixa.nome && Number(p.fixa.valor) > 0) {
+      const { ok, dia, tipo } = await criarDespesaFixaW(p.fixa, cliente.id, env);
+      const nomeCap = String(p.fixa.nome).trim().replace(/^\w/, (c) => c.toUpperCase());
+      const detalhe = `${fmtBRL(Number(p.fixa.valor))}${dia ? ` · vence dia ${dia}` : ""} · ${tipo === "pf" ? "Pessoal" : "Empresa"}`;
+      await enviar(telefone, ok ? `Despesa fixa cadastrada! ✅ *${nomeCap}* (${detalhe}). Vou te lembrar na véspera do vencimento e você dá baixa por aqui. 👍` : "Ops, não consegui cadastrar. Tenta de novo?", env);
+      return;
+    }
 
     // ─── dar baixa em despesa fixa: "paguei o hostinger das fixas" ───
     if (p.intencao === "pagar_fixa" && p.fixaBusca) {
