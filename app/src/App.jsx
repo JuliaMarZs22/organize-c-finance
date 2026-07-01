@@ -486,7 +486,9 @@ function Relatorio({txs,perfil,showToast}) {
   const meses=useMemo(()=>{const s=new Set(txs.filter((t)=>!t.cancelado).map((t)=>t.date.slice(0,7)));s.add(mk(today()));return[...s].sort().reverse();},[txs]);
   const[mes,setMes]=useState(mk(today()));
   const d=useMemo(()=>{
-    const lin=txs.filter((t)=>!t.cancelado&&t.date.slice(0,7)===mes);
+    // só conta o que JÁ aconteceu (data <= hoje); parcelas/compromissos futuros não entram
+    const N=today();const hojeStr=`${N.getFullYear()}-${String(N.getMonth()+1).padStart(2,"0")}-${String(N.getDate()).padStart(2,"0")}`;
+    const lin=txs.filter((t)=>!t.cancelado&&t.date.slice(0,7)===mes&&(t.date||"")<=hojeStr);
     let ent=0,sai=0;const vend={},gasto={};
     lin.forEach((t)=>{if(t.type==="entrada"){ent+=t.amount;const k=t.sub||t.category;vend[k]=(vend[k]||0)+t.amount;}else{sai+=t.amount;const k=t.sub||t.category;gasto[k]=(gasto[k]||0)+t.amount;}});
     const top=(o)=>Object.entries(o).sort((a,b)=>b[1]-a[1])[0];
