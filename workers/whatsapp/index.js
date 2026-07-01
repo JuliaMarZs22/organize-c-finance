@@ -114,13 +114,13 @@ async function interpretar(frase, env, ctx) {
 HOJE é ${hojeISO}. Use isso para resolver datas relativas.
 Primeiro identifique a INTENÇÃO da mensagem e responda APENAS com JSON, sem markdown.
 
-Formato: {"intencao":"registrar"|"quitar"|"consulta"|"cancelar"|"editar"|"lembrete"|"cancelar_lembrete"|"emprestimo"|"pagar_fixa","type":"entrada"|"saida","total":number,"installments":number,"category":string,"subcategoria":string,"negocio":string,"desc":string,"pessoa":string,"referencia":string,"pendente":number,"data":string,"edit":object,"lembrete":object,"lembrete_busca":string,"emprestimo":object,"fixa_busca":string}.
+Formato: {"intencao":"registrar"|"quitar"|"consulta"|"cancelar"|"editar"|"lembrete"|"cancelar_lembrete"|"emprestimo"|"pagar_fixa","type":"entrada"|"saida","total":number,"installments":number,"category":string,"subcategoria":string,"negocio":string,"desc":string,"pessoa":string,"referencia":string,"pendente":number,"data":string,"edit":object,"edit_busca":string,"lembrete":object,"lembrete_busca":string,"emprestimo":object,"fixa_busca":string}.
 
 INTENÇÃO:
 - "registrar": a pessoa está lançando uma entrada ou saída (ex.: "recebi 300 da Grasiele", "investi 200 em tráfego", "paguei 500 pro influencer", "recebi meu salário de 3000").
 - "quitar": a pessoa diz que alguém QUITOU/PAGOU uma dívida JÁ EXISTENTE, SEM informar o valor (ex.: "a Grasiele quitou", "o João me pagou tudo"). Preencha "pessoa", total 0. ATENÇÃO: se a mensagem TEM um valor em reais (ex.: "paguei 653,50 para a Emanuela", "recebi 300 da Ana"), NÃO é "quitar" — é "registrar" (entrada ou saída conforme o caso), mesmo que use a palavra "paguei/pagar".
 - "cancelar": a pessoa diz que uma venda/compra foi CANCELADA, ESTORNADA ou que houve PEDIDO DE DINHEIRO DE VOLTA/REEMBOLSO. Preencha "type" (entrada=venda cancelada, saida=compra cancelada), "pessoa" se houver, "total" o valor se mencionado.
-- "editar": a pessoa quer CORRIGIR/ALTERAR o ÚLTIMO lançamento (ex.: "não, era 500 não 50", "corrige pra gasolina", "muda a categoria pra saúde", "na verdade foi ontem", "o nome era Ana"). Preencha o objeto "edit" só com os campos a mudar: {"valor":number, "category":string, "subcategoria":string, "desc":string, "pessoa":string, "data":"YYYY-MM-DD", "type":"entrada"|"saida"}. Inclua APENAS os campos que a pessoa pediu para mudar; omita o resto.
+- "editar": a pessoa quer CORRIGIR/ALTERAR um lançamento. Preencha o objeto "edit" SÓ com os campos a MUDAR: {"valor":number, "category":string, "subcategoria":string, "desc":string, "pessoa":string, "data":"YYYY-MM-DD", "type":"entrada"|"saida"}. Inclua APENAS os campos que a pessoa pediu para mudar; omita o resto. IMPORTANTE — identificar QUAL lançamento: se a pessoa menciona QUAL lançamento corrigir (ex.: "corrige a data DO MERCADO de 353,54", "muda a entrada do Gabriel", "aquele gasto de gasolina"), coloque em "edit_busca" as palavras/valor que IDENTIFICAM o lançamento (ex.: "mercado 353,54", "Gabriel", "gasolina"). Esse valor/nome é só pra ACHAR o lançamento — NÃO é uma mudança, então NÃO o coloque em "edit.valor". Só use "edit.valor" quando a pessoa realmente quer TROCAR o valor (ex.: "era 500, não 50" → edit.valor=500). Se a pessoa não identificar qual (ex.: "não, era ontem", "corrige pra gasolina"), deixe "edit_busca" vazio — aí corrige o ÚLTIMO lançamento.
 - "consulta": a pessoa está PERGUNTANDO/PEDINDO algo sobre as finanças dela (ex.: "quanto vendi essa semana?", "meu resumo da semana", "qual produto vendeu mais?", "quanto investi em tráfego?", "qual meu lucro?", "como tá meu caixa?", "quem tá me devendo?", "minhas cobranças", "como estou?"). TAMBÉM é consulta quando a pessoa PERGUNTA SE algo JÁ FOI REGISTRADO/LANÇADO/CONFIRMADO (verificação), ex.: "já confirmou a saída de 15 de junho pra contadora de 200 reais?", "você lançou aquela venda da Ana?", "ficou registrado o pagamento do aluguel?", "tá lá a entrada de 500?". Isso é PERGUNTA, não um novo lançamento nem quitação. Nesse caso só "intencao":"consulta" importa.
 - "lembrete": a pessoa quer ser LEMBRADA de algo (remédio, tarefa, compromisso, ligar pra alguém, etc.). Ex.: "me lembra de tomar o remédio todo dia às 8h", "me lembra de ligar pro fornecedor amanhã 14h", "todo dia 8h e 20h tomar remédio", "me avisa segunda 9h da reunião". Preencha o objeto "lembrete": {"texto":"o que lembrar (curto)","horario":"HH:MM 24h","recorrencia":"once"|"diario"|"semanal"|"mensal","data":"YYYY-MM-DD se for once/data específica, senão null","dia_semana":0a6 (0=domingo) se semanal senão null,"dia_mes":1a31 se mensal senão null}. Se a pessoa der vários horários, crie um por horário (mas aqui retorne o primeiro; o sistema repete). Se não disser horário, use "09:00".
 - "cancelar_lembrete": a pessoa quer PARAR um lembrete (ex.: "para de me lembrar do remédio", "cancela o lembrete da academia"). Preencha "lembrete_busca" com palavras-chave do lembrete.
@@ -156,7 +156,7 @@ Campos para registrar/quitar:
   const total = Number(j.total) || 0;
   const installments = Math.max(1, Number(j.installments) || 1);
   const dataOk = /^\d{4}-\d{2}-\d{2}$/.test(j.data || "") ? j.data : hojeISO;
-  return { intencao: j.intencao || "registrar", valid: total > 0, type: j.type === "entrada" ? "entrada" : "saida", total, installments, valorParcela: total / installments, category: j.category || "Outros", subcategoria: (j.subcategoria || "").trim() || null, negocio: (j.negocio || "").trim() || null, desc: j.desc || frase.trim(), pessoa: (j.pessoa || "").trim() || null, referencia: (j.referencia || "").trim() || null, pendente: Number(j.pendente) > 0 ? Number(j.pendente) : null, data: dataOk, lembrarDiasAntes: Number(j.lembrar_dias_antes) > 0 ? Math.min(30, Number(j.lembrar_dias_antes)) : null, edit: j.edit || null, lembrete: j.lembrete || null, lembreteBusca: (j.lembrete_busca || "").trim() || null, emprestimo: j.emprestimo || null, fixaBusca: (j.fixa_busca || "").trim() || null };
+  return { intencao: j.intencao || "registrar", valid: total > 0, type: j.type === "entrada" ? "entrada" : "saida", total, installments, valorParcela: total / installments, category: j.category || "Outros", subcategoria: (j.subcategoria || "").trim() || null, negocio: (j.negocio || "").trim() || null, desc: j.desc || frase.trim(), pessoa: (j.pessoa || "").trim() || null, referencia: (j.referencia || "").trim() || null, pendente: Number(j.pendente) > 0 ? Number(j.pendente) : null, data: dataOk, lembrarDiasAntes: Number(j.lembrar_dias_antes) > 0 ? Math.min(30, Number(j.lembrar_dias_antes)) : null, edit: j.edit || null, editBusca: (j.edit_busca || "").trim() || null, lembrete: j.lembrete || null, lembreteBusca: (j.lembrete_busca || "").trim() || null, emprestimo: j.emprestimo || null, fixaBusca: (j.fixa_busca || "").trim() || null };
 }
 
 // ─── Q&A: responde perguntas financeiras consultando os dados do cliente ───
@@ -347,6 +347,19 @@ async function ultimoLancamento(clienteId, env) {
   });
   const rows = await r.json();
   return Array.isArray(rows) && rows[0] ? rows[0] : null;
+}
+
+// acha o lançamento a editar por referência (palavra e/ou valor). Senão, o último.
+async function buscarParaEditar(busca, clienteId, env) {
+  const valor = (() => { const m = (busca || "").replace(/\./g, "").match(/(\d+,\d{2}|\d+)/); return m ? Number(m[1].replace(",", ".")) : null; })();
+  const kw = (busca || "").replace(/[\d.,]+/g, " ").replace(/\b(de|do|da|o|a|com|reais|real|r\$)\b/gi, " ").trim();
+  let url = `${env.SUPABASE_URL}/rest/v1/lancamentos?cliente_id=eq.${clienteId}&cancelado=eq.false&select=id,tipo,valor,categoria,subcategoria,descricao,pessoa,data&order=criado_em.desc&limit=25`;
+  if (kw) { const q = encodeURIComponent(`*${kw}*`); url += `&or=(subcategoria.ilike.${q},descricao.ilike.${q},categoria.ilike.${q},pessoa.ilike.${q})`; }
+  const r = await fetch(url, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } });
+  const rows = await r.json();
+  if (!Array.isArray(rows) || !rows.length) return null;
+  if (valor != null) { const exato = rows.find((t) => Math.abs(Number(t.valor) - valor) < 0.01); if (exato) return exato; }
+  return rows[0];
 }
 
 // aplica edição a um lançamento
@@ -634,8 +647,8 @@ async function processarMensagem(body, env) {
 
     // ─── editar/corrigir o último lançamento ───
     if (p.intencao === "editar") {
-      const ult = await ultimoLancamento(cliente.id, env);
-      if (!ult) { await enviar(telefone, "Não achei um lançamento recente para corrigir. Me manda de novo? 🙂", env); return; }
+      const ult = p.editBusca ? await buscarParaEditar(p.editBusca, cliente.id, env) : await ultimoLancamento(cliente.id, env);
+      if (!ult) { await enviar(telefone, p.editBusca ? `Não achei um lançamento de "${p.editBusca}" pra corrigir. Confere o nome/valor? 🙂` : "Não achei um lançamento recente para corrigir. Me manda de novo? 🙂", env); return; }
       const e = p.edit || {};
       const campos = {};
       if (Number(e.valor) > 0) campos.valor = Number(e.valor);
@@ -649,7 +662,8 @@ async function processarMensagem(body, env) {
       await aplicarEdicao(ult.id, campos, env);
       const fmt2 = (n) => Number(n).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
       const resumoEd = Object.entries(campos).map(([k, v]) => `${k === "valor" ? "valor→" + fmt2(v) : k === "categoria" ? "categoria→" + v : k === "subcategoria" ? "item→" + (v || "—") : k === "descricao" ? "descrição→" + v : k === "pessoa" ? "pessoa→" + (v || "—") : k === "data" ? "data→" + v.split("-").reverse().join("/") : k === "tipo" ? "tipo→" + v : k}`).join(", ");
-      await enviar(telefone, `Corrigido! ✅ Último lançamento atualizado (${resumoEd}).`, env);
+      const alvoNome = `${ult.tipo === "entrada" ? "entrada" : "saída"} de ${fmt2(ult.valor)}${ult.subcategoria ? ` (${ult.subcategoria})` : ult.pessoa ? ` (${ult.pessoa})` : ""}`;
+      await enviar(telefone, `Corrigido! ✅ ${p.editBusca ? alvoNome[0].toUpperCase() + alvoNome.slice(1) : "Último lançamento"} atualizado (${resumoEd}).`, env);
       return;
     }
 
