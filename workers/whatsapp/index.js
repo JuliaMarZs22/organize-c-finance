@@ -390,13 +390,23 @@ async function aplicarEdicao(id, campos, env) {
 
 // busca lançamentos ativos (não cancelados) para cancelar — por pessoa e/ou valor e tipo
 async function buscarParaCancelar({ pessoa, total, type }, clienteId, env) {
-  let url = `${env.SUPABASE_URL}/rest/v1/lancamentos?cliente_id=eq.${clienteId}&cancelado=eq.false&select=id,descricao,categoria,subcategoria,valor,pessoa,tipo&order=data.desc&limit=10`;
+  let url = `${env.SUPABASE_URL}/rest/v1/lancamentos?cliente_id=eq.${clienteId}&cancelado=eq.false&select=id,descricao,categoria,subcategoria,valor,pessoa,tipo&order=data.desc&limit=30`;
   if (type) url += `&tipo=eq.${type}`;
-  if (pessoa) url += `&pessoa=ilike.${encodeURIComponent(`*${pessoa}*`)}`;
-  if (total) url += `&valor=eq.${Number(total).toFixed(2)}`;
   const r = await fetch(url, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } });
   const rows = await r.json();
-  return Array.isArray(rows) ? rows : [];
+  if (!Array.isArray(rows) || !rows.length) return [];
+  // sem referência (nem nome nem valor): devolve as mais recentes (comportamento antigo)
+  const tokens = (pessoa || "").toLowerCase().replace(/[^\wà-ÿ\s]/gi, " ").split(/\s+/).filter((w) => w.length >= 3 && !STOP_EDIT.has(w));
+  if (!tokens.length && !total) return rows;
+  // casa por VALOR e/ou PALAVRAS do nome (score); valor exato pesa mais
+  const scored = rows.map((t) => {
+    const hay = `${t.pessoa || ""} ${t.subcategoria || ""} ${t.descricao || ""}`.toLowerCase();
+    const nome = tokens.filter((w) => hay.includes(w)).length;
+    const val = total && Math.abs(Number(t.valor) - Number(total)) < 0.01 ? 1 : 0;
+    return { t, score: nome + val * 2 };
+  }).filter((x) => x.score > 0);
+  scored.sort((a, b) => b.score - a.score);
+  return scored.map((x) => x.t);
 }
 
 // marca lançamentos como cancelados (mantém o registro, tira do somatório)
