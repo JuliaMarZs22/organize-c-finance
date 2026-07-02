@@ -39,9 +39,28 @@ async function enviarPara(to, texto, env) {
   return { ok: r.ok, body: j };
 }
 
+// ── ENVIO via TWILIO (quando configurado) ──
+async function enviarTwilio(to, texto, env) {
+  const auth = btoa(`${env.TWILIO_ACCOUNT_SID}:${env.TWILIO_AUTH_TOKEN}`);
+  const params = new URLSearchParams({
+    From: env.TWILIO_WHATSAPP_FROM, // ex.: "whatsapp:+14155238886"
+    To: `whatsapp:+${soDigitos(to)}`,
+    Body: texto,
+  });
+  const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_ACCOUNT_SID}/Messages.json`, {
+    method: "POST",
+    headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/x-www-form-urlencoded" },
+    body: params.toString(),
+  });
+  const t = await r.text();
+  console.log("TWILIO ENVIAR ->", to, "status", r.status, t.slice(0, 200));
+  return r.ok;
+}
+
 // Tenta enviar; se o número não estiver na lista permitida (modo teste) ou
 // formato BR divergir, tenta as variações com/sem o 9º dígito.
 async function enviar(to, texto, env) {
+  if (env.TWILIO_ACCOUNT_SID) return await enviarTwilio(to, texto, env); // modo Twilio
   for (const v of variacoesTelefone(soDigitos(to))) {
     const { ok, body } = await enviarPara(v, texto, env);
     if (ok) return true;
@@ -529,6 +548,21 @@ export default {
       return new Response("Forbidden", { status: 403 });
     }
 
+    // ── POST /twilio — mensagens recebidas via Twilio (form-encoded) ──
+    if (request.method === "POST" && url.pathname === "/twilio") {
+      const form = await request.formData().catch(() => null);
+      if (form) {
+        const payload = {
+          From: form.get("From"), Body: form.get("Body"),
+          NumMedia: form.get("NumMedia"), MediaUrl0: form.get("MediaUrl0"),
+          MediaContentType0: form.get("MediaContentType0"),
+        };
+        ctx.waitUntil(processarTwilio(payload, env));
+      }
+      // responde TwiML vazio (Twilio só quer 200 rápido)
+      return new Response("<Response></Response>", { status: 200, headers: { "Content-Type": "text/xml" } });
+    }
+
     // ── POST /webhook — mensagens ──
     if (request.method === "POST" && url.pathname === "/webhook") {
       // responde 200 imediatamente (Meta exige < 5s)
@@ -543,6 +577,25 @@ export default {
     return new Response("Organize-C Finance — WhatsApp Worker online", { status: 200 });
   },
 };
+
+// Converte o webhook da Twilio no mesmo formato do Meta e reusa todo o cérebro.
+async function processarTwilio(payload, env) {
+  try {
+    const from = soDigitos(payload.From || ""); // "whatsapp:+5571..." -> "5571..."
+    let texto = payload.Body || "";
+    const numMedia = Number(payload.NumMedia || 0);
+    // áudio: baixa da URL da Twilio (Basic auth) e transcreve
+    if (numMedia > 0 && (payload.MediaContentType0 || "").startsWith("audio") && payload.MediaUrl0) {
+      const auth = btoa(`${env.TWILIO_ACCOUNT_SID}:${env.TWILIO_AUTH_TOKEN}`);
+      const ar = await fetch(payload.MediaUrl0, { headers: { Authorization: `Basic ${auth}` } });
+      texto = await transcrever(await ar.arrayBuffer(), env);
+    }
+    const fakeBody = { entry: [{ changes: [{ value: { messages: [{ from, type: "text", text: { body: texto } }] } }] }] };
+    await processarMensagem(fakeBody, env);
+  } catch (e) {
+    console.error("erro twilio:", e && e.stack ? e.stack : String(e));
+  }
+}
 
 async function processarMensagem(body, env) {
   try {
