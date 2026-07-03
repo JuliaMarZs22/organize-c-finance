@@ -247,7 +247,7 @@ function WhatsAppBanner() {
     </div>
     <div style={{textAlign:"center",flexShrink:0}}>
       <div style={{fontSize:11,color:C.faint,marginBottom:4}}>Seu número assistente</div>
-      <div style={{fontSize:16,fontWeight:700,color:C.gold,letterSpacing:1}}>+55 71 99286-8026</div>
+      <div style={{fontSize:16,fontWeight:700,color:C.gold,letterSpacing:1}}>+55 11 97271-8110</div>
       <div style={{fontSize:11,color:C.faint,marginTop:2}}>Organize-c Finance</div>
     </div>
   </Panel>;
