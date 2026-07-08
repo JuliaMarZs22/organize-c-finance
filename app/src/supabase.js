@@ -107,7 +107,7 @@ export async function salvarMeta(mes, faturamento, lucro) {
 }
 export async function carregarDespesasFixas() {
   const { data, error } = await supabase
-    .from("despesas_fixas").select("id, nome, valor, ativa, dia_vencimento, tipo, negocio, pago_mes").eq("ativa", true).order("nome");
+    .from("despesas_fixas").select("*").eq("ativa", true).order("nome");
   return { despesas: data || [], error };
 }
 export async function editarDespesaFixa(id, campos) {
