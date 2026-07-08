@@ -12,7 +12,7 @@ import {
 import {
   supabase, entrar, sair, definirSenha, usuarioAtual, ehAdmin, meuPerfil,
   carregarLancamentos, inserirLancamentos, carregarClientes,
-  carregarDespesasFixas, inserirDespesaFixa, excluirDespesaFixa, editarDespesaFixa, pagarDespesaFixa,
+  carregarDespesasFixas, inserirDespesaFixa, excluirDespesaFixa, editarDespesaFixa, pagarDespesaFixa, renomearNegocioFixa,
   atualizarSaldoInicial, atualizarCliente, editarLancamento, renomearPessoa, ajustarPendentePessoa,
   carregarMeta, salvarMeta, salvarPlanejamento, carregarCores, salvarCor, registrarOptin,
 } from "./supabase";
@@ -415,6 +415,8 @@ function DespesasFixas({despesas,onUpdate,showToast}) {
   const adicionar=async()=>{const v=parseBRL(valor);if(!nome.trim())return showToast("Digite o nome.","error");if(isNaN(v)||v<=0)return showToast("Digite um valor válido.","error");const dv=dia?Math.max(1,Math.min(31,Number(dia))):null;setLoad(true);const{error}=await inserirDespesaFixa(nome.trim(),v,dv,tipo,tipo==="pj"?neg.trim():"");setLoad(false);if(error)return showToast("Erro ao adicionar.","error");setNome("");setValor("");setDia("");setNeg("");showToast("Despesa adicionada!");onUpdate();};
   const excluir=async(id)=>{setDeleting(id);const{error}=await excluirDespesaFixa(id);setDeleting(null);if(error)return showToast("Erro ao remover.","error");showToast("Despesa removida.");onUpdate();};
   const[editId,setEditId]=useState(null);const[eVal,setEVal]=useState("");const[eDia,setEDia]=useState("");const[eTipo,setETipo]=useState("pj");const[eNeg,setENeg]=useState("");const[paying,setPaying]=useState(null);
+  const[renNeg,setRenNeg]=useState(null);const[renVal,setRenVal]=useState("");const[renLoad,setRenLoad]=useState(false);
+  const salvarRename=async(neg,itens)=>{setRenLoad(true);const{error}=await renomearNegocioFixa(itens.map((d)=>d.id),renVal);setRenLoad(false);if(error)return showToast("Erro ao renomear","error");setRenNeg(null);showToast("Negócio atualizado!");onUpdate();};
   const mesAtual=mk(today());
   const abrirEdit=(d)=>{setEditId(d.id);setEVal(String(d.valor).replace(".",","));setEDia(d.dia_vencimento?String(d.dia_vencimento):"");setETipo(d.tipo||"pj");setENeg(d.negocio||"");};
   const salvarEdit=async(d)=>{const v=parseBRL(eVal);if(isNaN(v)||v<=0)return showToast("Valor inválido","error");const dv=eDia?Math.max(1,Math.min(31,Number(eDia))):null;const{error}=await editarDespesaFixa(d.id,{valor:v,dia_vencimento:dv,tipo:eTipo,negocio:eTipo==="pj"?(eNeg.trim()||null):null});if(error)return showToast("Erro ao salvar","error");setEditId(null);showToast("Despesa atualizada!");onUpdate();};
@@ -443,7 +445,18 @@ function DespesasFixas({despesas,onUpdate,showToast}) {
       <button onClick={()=>abrirEdit(d)} style={{background:"none",border:"none",cursor:"pointer",color:C.faint,padding:3}} title="Editar"><Settings size={14}/></button>
       <button onClick={()=>excluir(d.id)} disabled={deleting===d.id} style={{background:"none",border:"none",cursor:"pointer",color:C.faint,padding:3}}>{deleting===d.id?<Loader2 size={13} className="animate-spin"/>:<Trash2 size={14}/>}</button>
     </div>;};
-  const Grupo=({titulo,itens,total})=>itens.length?<Panel><div className="flex items-center justify-between mb-1"><div style={{fontSize:13,fontWeight:600}}>{titulo}</div><div style={{fontSize:13,fontWeight:600,color:C.coral}}>{brl(total)}</div></div>{itens.map(Linha)}</Panel>:null;
+  const Grupo=({titulo,itens,total,neg})=>itens.length?<Panel>
+    {renNeg===neg&&neg!==undefined
+      ?<div className="flex items-center gap-2 mb-1">
+        <input value={renVal} onChange={(e)=>setRenVal(e.target.value)} list="negocios-fixas" placeholder="Nome do negócio" autoFocus onKeyDown={(e)=>e.key==="Enter"&&salvarRename(neg,itens)} style={{...fieldSm,flex:1}}/>
+        <button onClick={()=>salvarRename(neg,itens)} disabled={renLoad} style={{background:C.gold,color:"#16213a",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{renLoad?"...":"Salvar"}</button>
+        <button onClick={()=>setRenNeg(null)} style={{background:"none",border:"none",color:C.faint,cursor:"pointer",fontSize:12.5}}>✕</button>
+      </div>
+      :<div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-1.5" style={{fontSize:13,fontWeight:600}}>{titulo}{neg!==undefined&&<button onClick={()=>{setRenNeg(neg);setRenVal(neg||"");}} title="Nomear/renomear negócio" style={{background:"none",border:"none",cursor:"pointer",color:C.gold,padding:2,display:"inline-flex"}}><Settings size={12}/></button>}</div>
+        <div style={{fontSize:13,fontWeight:600,color:C.coral}}>{brl(total)}</div>
+      </div>}
+    {itens.map(Linha)}</Panel>:null;
   return <div className="grid gap-4" style={{gridTemplateColumns:"minmax(0,520px)",justifyContent:"center"}}>
     <Panel>
       <div className="flex items-center gap-2 mb-1" style={{fontSize:14,fontWeight:600}}><Settings size={16} color={C.gold}/> Despesas fixas</div>
@@ -462,7 +475,7 @@ function DespesasFixas({despesas,onUpdate,showToast}) {
       </div>
       {despesas.length===0&&<div style={{fontSize:13,color:C.faint,padding:"12px 0"}}>Nenhuma despesa fixa cadastrada.</div>}
     </Panel>
-    {gruposNeg.map((ng)=>{const itens=pj.filter((d)=>(d.negocio||"").trim()===ng);const tot=itens.reduce((s,d)=>s+Number(d.valor),0);return <Grupo key={ng||"_semneg"} titulo={ng?`🏢 ${ng}`:"🏢 Empresa — sem negócio definido"} itens={itens} total={tot}/>;})}
+    {gruposNeg.map((ng)=>{const itens=pj.filter((d)=>(d.negocio||"").trim()===ng);const tot=itens.reduce((s,d)=>s+Number(d.valor),0);return <Grupo key={ng||"_semneg"} titulo={ng?`🏢 ${ng}`:"🏢 Empresa — sem negócio definido"} itens={itens} total={tot} neg={ng}/>;})}
     <Grupo titulo="👤 Custo fixo pessoal (PF)" itens={pf} total={totPf}/>
   </div>;
 }

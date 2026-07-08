@@ -126,6 +126,12 @@ export async function pagarDespesaFixa(despesa, mes) {
   const { error: e2 } = await supabase.from("despesas_fixas").update({ pago_mes: mes }).eq("id", despesa.id);
   return { error: e2 };
 }
+// renomeia/define o negócio de várias despesas fixas de uma vez (por grupo)
+export async function renomearNegocioFixa(ids, negocio) {
+  if (!ids || !ids.length) return { error: null };
+  const { error } = await supabase.from("despesas_fixas").update({ negocio: (negocio || "").trim() || null }).in("id", ids);
+  return { error };
+}
 export async function inserirDespesaFixa(nome, valor, diaVencimento, tipo, negocio) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: new Error("Usuário não autenticado") };
