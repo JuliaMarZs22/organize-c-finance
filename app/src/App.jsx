@@ -409,22 +409,26 @@ function Visao({calc,perfil,despesas,onUpdate,showToast,cores,definirCor}) {
 
 /* ─── DESPESAS FIXAS ──────────────────────────────────────────────── */
 function DespesasFixas({despesas,onUpdate,showToast}) {
-  const[nome,setNome]=useState("");const[valor,setValor]=useState("");const[dia,setDia]=useState("");const[tipo,setTipo]=useState("pj");const[load,setLoad]=useState(false);const[deleting,setDeleting]=useState(null);
+  const[nome,setNome]=useState("");const[valor,setValor]=useState("");const[dia,setDia]=useState("");const[tipo,setTipo]=useState("pj");const[neg,setNeg]=useState("");const[load,setLoad]=useState(false);const[deleting,setDeleting]=useState(null);
   const field={background:C.panel2,border:`1px solid ${C.border}`,color:C.text,fontSize:13,borderRadius:8,padding:"9px 11px",outline:"none"};
-  const adicionar=async()=>{const v=parseBRL(valor);if(!nome.trim())return showToast("Digite o nome.","error");if(isNaN(v)||v<=0)return showToast("Digite um valor válido.","error");const dv=dia?Math.max(1,Math.min(31,Number(dia))):null;setLoad(true);const{error}=await inserirDespesaFixa(nome.trim(),v,dv,tipo);setLoad(false);if(error)return showToast("Erro ao adicionar.","error");setNome("");setValor("");setDia("");showToast("Despesa adicionada!");onUpdate();};
+  const sugestoesNeg=[...new Set(despesas.map((d)=>(d.negocio||"").trim()).filter(Boolean))];
+  const adicionar=async()=>{const v=parseBRL(valor);if(!nome.trim())return showToast("Digite o nome.","error");if(isNaN(v)||v<=0)return showToast("Digite um valor válido.","error");const dv=dia?Math.max(1,Math.min(31,Number(dia))):null;setLoad(true);const{error}=await inserirDespesaFixa(nome.trim(),v,dv,tipo,tipo==="pj"?neg.trim():"");setLoad(false);if(error)return showToast("Erro ao adicionar.","error");setNome("");setValor("");setDia("");setNeg("");showToast("Despesa adicionada!");onUpdate();};
   const excluir=async(id)=>{setDeleting(id);const{error}=await excluirDespesaFixa(id);setDeleting(null);if(error)return showToast("Erro ao remover.","error");showToast("Despesa removida.");onUpdate();};
-  const[editId,setEditId]=useState(null);const[eVal,setEVal]=useState("");const[eDia,setEDia]=useState("");const[eTipo,setETipo]=useState("pj");const[paying,setPaying]=useState(null);
+  const[editId,setEditId]=useState(null);const[eVal,setEVal]=useState("");const[eDia,setEDia]=useState("");const[eTipo,setETipo]=useState("pj");const[eNeg,setENeg]=useState("");const[paying,setPaying]=useState(null);
   const mesAtual=mk(today());
-  const abrirEdit=(d)=>{setEditId(d.id);setEVal(String(d.valor).replace(".",","));setEDia(d.dia_vencimento?String(d.dia_vencimento):"");setETipo(d.tipo||"pj");};
-  const salvarEdit=async(d)=>{const v=parseBRL(eVal);if(isNaN(v)||v<=0)return showToast("Valor inválido","error");const dv=eDia?Math.max(1,Math.min(31,Number(eDia))):null;const{error}=await editarDespesaFixa(d.id,{valor:v,dia_vencimento:dv,tipo:eTipo});if(error)return showToast("Erro ao salvar","error");setEditId(null);showToast("Despesa atualizada!");onUpdate();};
+  const abrirEdit=(d)=>{setEditId(d.id);setEVal(String(d.valor).replace(".",","));setEDia(d.dia_vencimento?String(d.dia_vencimento):"");setETipo(d.tipo||"pj");setENeg(d.negocio||"");};
+  const salvarEdit=async(d)=>{const v=parseBRL(eVal);if(isNaN(v)||v<=0)return showToast("Valor inválido","error");const dv=eDia?Math.max(1,Math.min(31,Number(eDia))):null;const{error}=await editarDespesaFixa(d.id,{valor:v,dia_vencimento:dv,tipo:eTipo,negocio:eTipo==="pj"?(eNeg.trim()||null):null});if(error)return showToast("Erro ao salvar","error");setEditId(null);showToast("Despesa atualizada!");onUpdate();};
   const pagar=async(d)=>{setPaying(d.id);const{error}=await pagarDespesaFixa(d,mesAtual);setPaying(null);if(error)return showToast("Erro ao registrar pagamento","error");showToast("Pago! ✅ Saída registrada no caixa.");onUpdate();};
   const pj=despesas.filter((d)=>(d.tipo||"pj")==="pj");const pf=despesas.filter((d)=>(d.tipo||"pj")==="pf");
-  const totPj=pj.reduce((s,d)=>s+Number(d.valor),0);const totPf=pf.reduce((s,d)=>s+Number(d.valor),0);
+  const totPf=pf.reduce((s,d)=>s+Number(d.valor),0);
+  // agrupa despesas PJ por negócio (empreendedor com vários negócios)
+  const gruposNeg=[...new Set(pj.map((d)=>(d.negocio||"").trim()))].sort((a,b)=>(a===""?1:b===""?-1:a.localeCompare(b)));
   const fieldSm={background:C.panel2,border:`1px solid ${C.border}`,color:C.text,fontSize:12.5,borderRadius:8,padding:"6px 9px",outline:"none"};
   const Linha=(d,i)=>{const pago=d.pago_mes===mesAtual;
     if(editId===d.id)return<div key={d.id} className="py-2.5" style={{borderTop:i?`1px solid ${C.border}`:"none"}}>
       <div style={{fontSize:13,fontWeight:600,marginBottom:6}}>{d.nome}</div>
       <div className="flex gap-1.5 mb-2">{[["pj","Empresa"],["pf","Pessoal"]].map(([k,l])=><button key={k} onClick={()=>setETipo(k)} className="flex-1 rounded-lg py-1.5" style={{fontSize:12,cursor:"pointer",background:eTipo===k?C.emer+"22":C.panel2,color:eTipo===k?C.emer:C.muted,border:`1px solid ${eTipo===k?C.emer+"66":C.border}`}}>{l}</button>)}</div>
+      {eTipo==="pj"&&<input value={eNeg} onChange={(e)=>setENeg(e.target.value)} list="negocios-fixas" placeholder="Negócio (ex: Loja, Clínica)" style={{...fieldSm,width:"100%",marginBottom:8}}/>}
       <div className="flex gap-2 items-center">
         <input value={eVal} onChange={(e)=>setEVal(e.target.value)} placeholder="Valor" inputMode="decimal" style={{...fieldSm,flex:1}}/>
         <input value={eDia} onChange={(e)=>setEDia(e.target.value)} placeholder="Dia" type="number" min={1} max={31} style={{...fieldSm,width:64}}/>
@@ -443,10 +447,12 @@ function DespesasFixas({despesas,onUpdate,showToast}) {
   return <div className="grid gap-4" style={{gridTemplateColumns:"minmax(0,520px)",justifyContent:"center"}}>
     <Panel>
       <div className="flex items-center gap-2 mb-1" style={{fontSize:14,fontWeight:600}}><Settings size={16} color={C.gold}/> Despesas fixas</div>
-      <p style={{fontSize:12.5,color:C.muted,marginBottom:16}}>Separe o que é da <b style={{color:C.text}}>empresa (PJ)</b> e o que é <b style={{color:C.text}}>pessoal (PF)</b> — assim você vê o custo real de cada lado.</p>
+      <p style={{fontSize:12.5,color:C.muted,marginBottom:16}}>Separe o que é da <b style={{color:C.text}}>empresa (PJ)</b> e o que é <b style={{color:C.text}}>pessoal (PF)</b>. Tem vários negócios? Marque o <b style={{color:C.text}}>negócio</b> de cada custo fixo e veja o total de cada um.</p>
+      <datalist id="negocios-fixas">{sugestoesNeg.map((n)=><option key={n} value={n}/>)}</datalist>
       <div className="flex flex-col gap-2 mb-4">
         <div className="flex gap-1.5">{[["pj","🏢 Empresa (PJ)"],["pf","👤 Pessoal (PF)"]].map(([k,l])=><button key={k} onClick={()=>setTipo(k)} className="flex-1 rounded-lg py-2" style={{fontSize:12.5,fontWeight:600,cursor:"pointer",background:tipo===k?C.emer+"22":C.panel2,color:tipo===k?C.emer:C.muted,border:`1px solid ${tipo===k?C.emer+"66":C.border}`}}>{l}</button>)}</div>
         <input value={nome} onChange={(e)=>setNome(e.target.value)} placeholder="Nome (ex: Aluguel)" onKeyDown={(e)=>e.key==="Enter"&&adicionar()} style={{...field,width:"100%"}}/>
+        {tipo==="pj"&&<input value={neg} onChange={(e)=>setNeg(e.target.value)} list="negocios-fixas" placeholder="Negócio (ex: Loja, Clínica) — opcional" onKeyDown={(e)=>e.key==="Enter"&&adicionar()} style={{...field,width:"100%"}}/>}
         <div className="flex gap-2">
           <input value={valor} onChange={(e)=>setValor(e.target.value)} placeholder="Valor (R$)" inputMode="decimal" onKeyDown={(e)=>e.key==="Enter"&&adicionar()} style={{...field,flex:1}}/>
           <input value={dia} onChange={(e)=>setDia(e.target.value)} placeholder="Dia venc." inputMode="numeric" type="number" min={1} max={31} onKeyDown={(e)=>e.key==="Enter"&&adicionar()} style={{...field,width:90}} title="Dia do mês em que vence (opcional)"/>
@@ -456,7 +462,7 @@ function DespesasFixas({despesas,onUpdate,showToast}) {
       </div>
       {despesas.length===0&&<div style={{fontSize:13,color:C.faint,padding:"12px 0"}}>Nenhuma despesa fixa cadastrada.</div>}
     </Panel>
-    <Grupo titulo="🏢 Custo fixo da empresa (PJ)" itens={pj} total={totPj}/>
+    {gruposNeg.map((ng)=>{const itens=pj.filter((d)=>(d.negocio||"").trim()===ng);const tot=itens.reduce((s,d)=>s+Number(d.valor),0);return <Grupo key={ng||"_semneg"} titulo={ng?`🏢 ${ng}`:"🏢 Empresa — sem negócio definido"} itens={itens} total={tot}/>;})}
     <Grupo titulo="👤 Custo fixo pessoal (PF)" itens={pf} total={totPf}/>
   </div>;
 }

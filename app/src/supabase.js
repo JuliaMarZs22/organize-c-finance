@@ -107,7 +107,7 @@ export async function salvarMeta(mes, faturamento, lucro) {
 }
 export async function carregarDespesasFixas() {
   const { data, error } = await supabase
-    .from("despesas_fixas").select("id, nome, valor, ativa, dia_vencimento, tipo, pago_mes").eq("ativa", true).order("nome");
+    .from("despesas_fixas").select("id, nome, valor, ativa, dia_vencimento, tipo, negocio, pago_mes").eq("ativa", true).order("nome");
   return { despesas: data || [], error };
 }
 export async function editarDespesaFixa(id, campos) {
@@ -126,10 +126,10 @@ export async function pagarDespesaFixa(despesa, mes) {
   const { error: e2 } = await supabase.from("despesas_fixas").update({ pago_mes: mes }).eq("id", despesa.id);
   return { error: e2 };
 }
-export async function inserirDespesaFixa(nome, valor, diaVencimento, tipo) {
+export async function inserirDespesaFixa(nome, valor, diaVencimento, tipo, negocio) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: new Error("Usuário não autenticado") };
-  const { error } = await supabase.from("despesas_fixas").insert({ nome, valor, dia_vencimento: diaVencimento || null, tipo: tipo || "pj", cliente_id: user.id });
+  const { error } = await supabase.from("despesas_fixas").insert({ nome, valor, dia_vencimento: diaVencimento || null, tipo: tipo || "pj", negocio: (negocio || "").trim() || null, cliente_id: user.id });
   return { error };
 }
 export async function excluirDespesaFixa(id) {
