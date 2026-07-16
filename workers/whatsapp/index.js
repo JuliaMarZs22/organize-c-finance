@@ -202,12 +202,13 @@ async function responderConsulta(pergunta, clienteId, env, telefone) {
   if (!Array.isArray(rows) || !rows.length) return "Ainda não tenho lançamentos seus para analisar. Comece registrando suas entradas e saídas que eu te ajudo a entender o negócio. 💛";
 
   // dados do cliente (saldo inicial) + custo fixo, para calcular caixa
-  let saldoInicial = 0, custoFixo = 0;
+  let saldoInicial = 0, custoFixo = 0, despesasFixasList = [];
   try {
     const cr = await fetch(`${env.SUPABASE_URL}/rest/v1/clientes?id=eq.${clienteId}&select=saldo_inicial,imposto_pct,prolabore_alvo`, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } });
     const cli0 = (await cr.json())?.[0] || {}; saldoInicial = Number(cli0.saldo_inicial || 0); var impostoPct = Number(cli0.imposto_pct || 0), prolaboreAlvo = Number(cli0.prolabore_alvo || 0);
-    const dr = await fetch(`${env.SUPABASE_URL}/rest/v1/despesas_fixas?cliente_id=eq.${clienteId}&ativa=eq.true&select=valor`, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } });
-    custoFixo = (await dr.json() || []).reduce((s, d) => s + Number(d.valor), 0);
+    const dr = await fetch(`${env.SUPABASE_URL}/rest/v1/despesas_fixas?cliente_id=eq.${clienteId}&ativa=eq.true&select=nome,valor,dia_vencimento,tipo,negocio,pago_mes`, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } });
+    despesasFixasList = (await dr.json()) || [];
+    custoFixo = despesasFixasList.reduce((s, d) => s + Number(d.valor), 0);
   } catch (_) {}
   let metaFat = 0, metaLuc = 0;
   try {
@@ -217,8 +218,11 @@ async function responderConsulta(pergunta, clienteId, env, telefone) {
   } catch (_) {}
 
   const hojeI = hojeBR(); const mesAtual = mesBR();
+  const diaHoje = Number(hojeI.slice(8, 10));
   const seteDias = new Date(new Date(hojeI + "T12:00:00Z").getTime() - 7 * 86400000).toISOString().slice(0, 10);
-  const resumo = { hoje: hojeI, mesAtual, custoFixo, totalEntradas: 0, totalSaidas: 0, entradasMes: 0, saidasMes: 0, entradasSemana: 0, saidasSemana: 0, caixaAtual: saldoInicial, porSubcategoria: {}, porCategoria: {}, porNegocio: {}, pendentes: [], transacoes: [] };
+  // despesas fixas com dia de vencimento — pra responder "o que vence hoje/essa semana"
+  const despesasFixas = despesasFixasList.map((d) => ({ nome: d.nome, valor: Number(d.valor), diaVencimento: d.dia_vencimento || null, tipo: d.tipo, negocio: d.negocio || null, pagaEsseMes: d.pago_mes === mesAtual, venceHoje: Number(d.dia_vencimento) === diaHoje }));
+  const resumo = { hoje: hojeI, diaHoje, mesAtual, custoFixo, totalEntradas: 0, totalSaidas: 0, entradasMes: 0, saidasMes: 0, entradasSemana: 0, saidasSemana: 0, caixaAtual: saldoInicial, porSubcategoria: {}, porCategoria: {}, porNegocio: {}, pendentes: [], transacoes: [], despesasFixas };
   for (const t of rows) {
     const v = Number(t.valor); const realizado = (t.data || "") <= hojeI; const noMes = (t.data || "").slice(0, 7) === mesAtual && realizado; const naSemana = (t.data || "") >= seteDias && (t.data || "") <= hojeI;
     if (t.tipo === "entrada") { resumo.totalEntradas += v; if (noMes) resumo.entradasMes += v; if (naSemana) resumo.entradasSemana += v; if (realizado) resumo.caixaAtual += v; }
@@ -251,6 +255,7 @@ Os dados trazem: caixaAtual, custoFixo (mensal), entradas/saídas/lucro do mês 
 - Se houver metaFaturamento/metaLucro > 0 e perguntarem da "meta": compare com entradasMes/lucroMes, diga o % atingido e quanto falta.
 - Se houver impostoPct > 0 e perguntarem de imposto/reserva: diga para reservar reservaImpostoSugerida (impostoPct% do que entrou no mês). Se prolaboreAlvo > 0 e perguntarem de pró-labore/retirada: informe o alvo e quanto já foi retirado.
 - Se perguntarem a DIFERENÇA entre "caixa" e "entradas/saídas do mês", ou "por que o caixa não bate com entradas menos saídas", EXPLIQUE com clareza: (a) CAIXA ATUAL = saldo inicial + TODAS as entradas já realizadas (todos os meses) − TODAS as saídas já realizadas; é o dinheiro acumulado que está de fato na conta hoje, e só conta o que já aconteceu (ignora lançamentos com data futura). (b) ENTRADAS/SAÍDAS DO MÊS = recorte SÓ do mês atual, e contam tudo do mês inclusive datas futuras dentro do mês. Por isso "entradas do mês − saídas do mês" NÃO é igual ao caixa: o caixa carrega o saldo inicial e o resultado de meses anteriores, e desconsidera o que ainda não foi realizado. Use os números reais do cliente pra ilustrar.
+- Se perguntarem o que VENCE hoje / essa semana / o que tem pra PAGAR ("quais contas vencem hoje?", "o que tenho pra pagar?", "quais despesas fixas vencem essa semana?"): use "despesasFixas" (cada uma tem nome, valor, diaVencimento, pagaEsseMes, venceHoje). Compare "diaVencimento" com "diaHoje". Liste as que vencem no período pedido, mostrando nome + valor + dia, e marque as que JÁ estão pagas esse mês (pagaEsseMes:true). Se nenhuma vencer no período, diga isso. NÃO diga que não há contas sem antes olhar despesasFixas.
 - Se perguntarem do "pode gastar mês que vem": explique que é Caixa + entrada prevista do próximo mês − custo fixo − reserva (a reserva é o custo fixo guardado como segurança). Se estiver negativo, normalmente é porque não há entradas futuras lançadas ou o caixa está baixo; sugira lançar as entradas previstas.
 - DIAGNÓSTICO PROFUNDO: quando a pessoa pedir uma análise sincera/aberta da situação ("como está minha situação financeira?", "pra onde foi meu dinheiro?", "onde tem um furo que não percebo?", "faturei mais e estou no negativo, por quê?", "o que avalia do meu padrão/estilo de vida?", "onde posso melhorar?", "me dá conselhos"), faça uma ANÁLISE COMPLETA e honesta (pode usar até ~14 linhas, com seções curtas e emojis de seção). Estruture assim:
   1) *Retrato* — resuma em 2-3 frases a situação real (caixa, lucro do mês, se está no vermelho e o tamanho do buraco).

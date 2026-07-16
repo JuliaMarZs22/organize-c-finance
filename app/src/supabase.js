@@ -117,10 +117,13 @@ export async function editarDespesaFixa(id, campos) {
 export async function pagarDespesaFixa(despesa, mes) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: new Error("não autenticado") };
+  // data em horário local (Brasília) — nao UTC, senao pagamento à noite cai no dia seguinte
+  const h = new Date();
+  const dataLocal = `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, "0")}-${String(h.getDate()).padStart(2, "0")}`;
   const { error: e1 } = await supabase.from("lancamentos").insert({
     cliente_id: user.id, tipo: "saida", valor: despesa.valor,
     categoria: "Despesa fixa", subcategoria: despesa.nome, descricao: despesa.nome,
-    data: new Date().toISOString().slice(0, 10), fixa: true, origem: "manual",
+    data: dataLocal, fixa: true, origem: "manual",
   });
   if (e1) return { error: e1 };
   const { error: e2 } = await supabase.from("despesas_fixas").update({ pago_mes: mes }).eq("id", despesa.id);
