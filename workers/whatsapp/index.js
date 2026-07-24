@@ -206,8 +206,9 @@ async function responderConsulta(pergunta, clienteId, env, telefone) {
   try {
     const cr = await fetch(`${env.SUPABASE_URL}/rest/v1/clientes?id=eq.${clienteId}&select=saldo_inicial,imposto_pct,prolabore_alvo`, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } });
     const cli0 = (await cr.json())?.[0] || {}; saldoInicial = Number(cli0.saldo_inicial || 0); var impostoPct = Number(cli0.imposto_pct || 0), prolaboreAlvo = Number(cli0.prolabore_alvo || 0);
-    const dr = await fetch(`${env.SUPABASE_URL}/rest/v1/despesas_fixas?cliente_id=eq.${clienteId}&ativa=eq.true&select=nome,valor,dia_vencimento,tipo,negocio,pago_mes`, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } });
-    despesasFixasList = (await dr.json()) || [];
+    const dr = await fetch(`${env.SUPABASE_URL}/rest/v1/despesas_fixas?cliente_id=eq.${clienteId}&ativa=eq.true&select=*`, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } });
+    const _rows = await dr.json();
+    despesasFixasList = Array.isArray(_rows) ? _rows : []; // nunca deixa virar objeto de erro
     custoFixo = despesasFixasList.reduce((s, d) => s + Number(d.valor), 0);
   } catch (_) {}
   let metaFat = 0, metaLuc = 0;
