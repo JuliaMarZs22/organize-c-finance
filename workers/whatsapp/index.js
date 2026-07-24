@@ -244,6 +244,19 @@ async function responderConsulta(pergunta, clienteId, env, telefone) {
   resumo.metaFaturamento = metaFat; resumo.metaLucro = metaLuc;
   try { resumo.impostoPct = impostoPct; resumo.reservaImpostoSugerida = resumo.entradasMes * impostoPct / 100; resumo.prolaboreAlvo = prolaboreAlvo; } catch (_) {}
 
+  // BUSCA POR NOME/ITEM feita no SERVIDOR (confiável — não depende do GPT varrer a lista)
+  const STOP_CONSULTA = new Set(["que","com","para","pra","pro","dos","das","uma","meu","minha","meus","minhas","esse","este","essa","esta","mes","hoje","quanto","quanta","quais","qual","gastei","gastos","gasto","gastar","paguei","pagar","pagamento","pagamentos","recebi","receber","busca","buscar","procura","fiz","feito","valor","valores","dinheiro","conta","contas","ele","ela","eles","elas","isso","dele","dela","sobre","todos","todas","tudo","ano","dia","dias","semana","semanas","mostra","mostrar","lista","listar","ver","tem","tenho","foi","estao","como","onde","quando","por","meus","este"]);
+  const norm = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const termosBusca = norm(pergunta).replace(/[^a-zà-ÿ0-9\s]/g, " ").split(/\s+/).filter((w) => w.length >= 3 && !STOP_CONSULTA.has(w));
+  if (termosBusca.length) {
+    const enc = [];
+    for (const t of rows) {
+      const hay = norm(`${t.pessoa || ""} ${t.subcategoria || ""} ${t.descricao || ""} ${t.categoria || ""}`);
+      if (termosBusca.some((w) => hay.includes(w))) { enc.push({ data: t.data, tipo: t.tipo, valor: Number(t.valor), item: t.subcategoria || t.categoria || "Outros", pessoa: t.pessoa || "", desc: t.descricao || "" }); if (enc.length >= 50) break; }
+    }
+    resumo.termosBusca = termosBusca; resumo.encontrados = enc;
+  }
+
   const ANALISTA = `Você é um assistente financeiro pessoal e consultor de negócios, falando por WhatsApp com um empreendedor brasileiro. Seja DIRETO, caloroso, máx ~7 linhas. Use os DADOS REAIS (R$) para responder.
 Os dados trazem: caixaAtual, custoFixo (mensal), entradas/saídas/lucro do mês (Mes) e da última semana (Semana), totais gerais, pendentes (contas a receber) e totalAReceber, e quebra por produto/serviço (porSubcategoria) e categoria.
 - Se perguntarem do "caixa": informe caixaAtual e, se houver custoFixo, diga por quantos meses/dias o caixa cobre o custo fixo.
@@ -251,7 +264,7 @@ Os dados trazem: caixaAtual, custoFixo (mensal), entradas/saídas/lucro do mês 
 - Se perguntarem "quem me deve / cobranças": liste os pendentes (pessoa + valor) e o totalAReceber.
 - Se perguntarem o que mais vendeu: use porSubcategoria (entrada).
 - Se a pessoa tiver vários negócios e perguntar por um ("quanto vendi na clínica?", "lucro da loja"): use porNegocio (formato "tipo:Negocio").
-- Se perguntarem por um NOME, PESSOA ou BENEFICIÁRIO ("quanto gastei com o Noah esse mês?", "quanto paguei pra Monaliza?", "gastos com minha mãe"): varra a lista "transacoes" (campos pessoa, item e desc) somando as que mencionam esse nome no período pedido. A referência/beneficiário fica dentro de "desc" (ex.: "ref.: filho Noah"). Liste os itens encontrados (data, item, valor) e o total. Se não achar nenhum, diga que não encontrou gastos com esse nome.
+- Se perguntarem por um NOME, PESSOA, ITEM ou BENEFICIÁRIO ("quanto paguei pra Fernanda?", "gastos com o Noah esse mês?", "pagamentos pra Monaliza"): o campo "encontrados" JÁ TRAZ todas as transações que casam com os termos da pergunta (busca feita no servidor, inclusive nomes DENTRO de itens — ex.: "fernanda" acha "Fixo Fernanda"). USE "encontrados": liste cada uma (data, item/pessoa, valor) e SOME o total; se a pessoa pediu um período (ex.: "esse mês"), filtre pelo campo "data" comparando com "mesAtual". Só diga que NÃO encontrou se "encontrados" estiver VAZIO ou ausente. NUNCA diga que não achou sem antes olhar "encontrados". (A lista "transacoes" é um apoio extra, mas "encontrados" é a fonte principal pra buscas por nome.)
 - Se perguntarem SE algo já foi registrado/lançado/confirmado ("já confirmou a saída de 15/06 pra contadora de 200?"): procure na lista "transacoes" por uma que bata (data, valor, pessoa, item ou desc). Se achar, confirme dizendo o que está lançado ("Sim! Está registrado: saída de R$ 200,00 em 15/06 — Pagamento à contadora"). Se NÃO achar, diga que ainda não consta esse lançamento e ofereça registrar.
 - Se houver metaFaturamento/metaLucro > 0 e perguntarem da "meta": compare com entradasMes/lucroMes, diga o % atingido e quanto falta.
 - Se houver impostoPct > 0 e perguntarem de imposto/reserva: diga para reservar reservaImpostoSugerida (impostoPct% do que entrou no mês). Se prolaboreAlvo > 0 e perguntarem de pró-labore/retirada: informe o alvo e quanto já foi retirado.
