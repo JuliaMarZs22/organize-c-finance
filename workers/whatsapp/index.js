@@ -605,16 +605,54 @@ export default {
 };
 
 // Converte o webhook da Twilio no mesmo formato do Meta e reusa todo o cérebro.
+// converte ArrayBuffer -> base64 (Workers não têm Buffer)
+function abToBase64(buf) {
+  let bin = ""; const bytes = new Uint8Array(buf); const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  return btoa(bin);
+}
+// Lê imagem (comprovante/nota/PIX) com visão do GPT e devolve uma frase natural pro fluxo de registro.
+// Retorna "SEM_TRANSACAO" se não der pra identificar um valor.
+async function lerImagem(imageBuf, contentType, env) {
+  const b64 = abToBase64(imageBuf);
+  const PROMPT = `Você recebeu uma imagem enviada por um empreendedor no assistente financeiro dele. Se for um COMPROVANTE, NOTA FISCAL, RECIBO, comprovante de PIX, boleto ou print de transação, EXTRAIA e responda em UMA ÚNICA frase natural em português, do jeito que a pessoa falaria pra registrar — incluindo o VALOR, se é GASTO ou RECEBIMENTO, e o que é / pra quem. Ex.: "gastei 257 reais em consultório odontológico", "recebi 500 da Ana pela consultoria", "paguei 89,90 de energia". Se houver DATA visível diferente de hoje, cite ("dia 10"). Se NÃO for possível identificar uma transação com valor, responda EXATAMENTE: SEM_TRANSACAO`;
+  const r = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.OPENAI_API_KEY}` },
+    body: JSON.stringify({
+      model: "gpt-4o-mini", temperature: 0,
+      messages: [{ role: "user", content: [
+        { type: "text", text: PROMPT },
+        { type: "image_url", image_url: { url: `data:${contentType || "image/jpeg"};base64,${b64}` } },
+      ] }],
+    }),
+  });
+  const data = await r.json();
+  return (data.choices?.[0]?.message?.content || "").trim();
+}
+
 async function processarTwilio(payload, env) {
   try {
     const from = soDigitos(payload.From || ""); // "whatsapp:+5571..." -> "5571..."
     let texto = payload.Body || "";
     const numMedia = Number(payload.NumMedia || 0);
+    const mtype = payload.MediaContentType0 || "";
     // áudio: baixa da URL da Twilio (Basic auth) e transcreve
-    if (numMedia > 0 && (payload.MediaContentType0 || "").startsWith("audio") && payload.MediaUrl0) {
+    if (numMedia > 0 && mtype.startsWith("audio") && payload.MediaUrl0) {
       const auth = btoa(`${env.TWILIO_ACCOUNT_SID}:${env.TWILIO_AUTH_TOKEN}`);
       const ar = await fetch(payload.MediaUrl0, { headers: { Authorization: `Basic ${auth}` } });
       texto = await transcrever(await ar.arrayBuffer(), env);
+    }
+    // imagem: baixa e lê com visão do GPT (comprovante/nota/PIX)
+    else if (numMedia > 0 && mtype.startsWith("image") && payload.MediaUrl0) {
+      const auth = btoa(`${env.TWILIO_ACCOUNT_SID}:${env.TWILIO_AUTH_TOKEN}`);
+      const ar = await fetch(payload.MediaUrl0, { headers: { Authorization: `Basic ${auth}` } });
+      const extraido = await lerImagem(await ar.arrayBuffer(), mtype, env);
+      if (!extraido || /SEM_TRANSACAO/i.test(extraido)) {
+        await enviar(from, "Recebi sua imagem 📷 mas não consegui identificar um valor de transação nela. Me manda por texto ou áudio o que foi? (ex.: \"gastei 50 no mercado\")", env);
+        return;
+      }
+      texto = (payload.Body ? payload.Body + ". " : "") + extraido; // junta legenda + o que foi lido
     }
     const fakeBody = { entry: [{ changes: [{ value: { messages: [{ from, type: "text", text: { body: texto } }] } }] }] };
     await processarMensagem(fakeBody, env);
@@ -692,7 +730,7 @@ async function processarMensagem(body, env) {
 
     // menu de ajuda (oi, menu, ajuda) — descoberta das funções, sem custo de IA
     if (/^\s*(oi+|ol[áa]|menu|ajuda|help|come[çc]ar|in[íi]cio|comandos|o que (voc[êe]|tu) faz|como funciona)\s*[!?.]*\s*$/i.test(texto)) {
-      await enviar(telefone, `Oi! 👋 Sou seu assistente do *Organize-C Finance*. Comigo você pode, por áudio ou texto:\n\n📥 *Registrar* — "recebi 300 da Ana pela harmonização" / "gastei 50 de gasolina" / "investi 200 em tráfego"\n📅 *Datas* — "ontem", "dia 5/06", "10/07 vou receber 1000"\n✅ *Quitação* — "a Ana quitou"\n❌ *Cancelar* — "a cliente cancelou e quer o dinheiro de volta"\n✏️ *Corrigir* — "era 500, não 50"\n\nE me *perguntar* quando quiser:\n📊 "meu resumo da semana"\n💰 "como tá meu caixa?"\n🔔 "quem tá me devendo?"\n🏆 "qual produto vendeu mais?"\n📈 "qual meu lucro esse mês?"\n\n🔔 E posso te *lembrar* de coisas:\n"me lembra de tomar o remédio todo dia às 8h"\n("meus lembretes" pra ver / "cancela o lembrete X")\n\n🧾 *Despesa fixa:* "cadastra despesa fixa aluguel 2600 dia 10 pessoal" · "dar baixa no aluguel das fixas"\n💳 *Empréstimo:* "peguei 5000 emprestado, 5x de 1000"\n\nÉ só mandar! 💛`, env);
+      await enviar(telefone, `Oi! 👋 Sou seu assistente do *Organize-C Finance*. Comigo você pode, por *texto, áudio ou foto* 📷:\n\n📸 *Foto de comprovante/nota* — manda a imagem que eu leio o valor e registro\n📥 *Registrar* — "recebi 300 da Ana pela harmonização" / "gastei 50 de gasolina" / "investi 200 em tráfego"\n📅 *Datas* — "ontem", "dia 5/06", "10/07 vou receber 1000"\n✅ *Quitação* — "a Ana quitou"\n❌ *Cancelar* — "a cliente cancelou e quer o dinheiro de volta"\n✏️ *Corrigir* — "era 500, não 50"\n\nE me *perguntar* quando quiser:\n📊 "meu resumo da semana"\n💰 "como tá meu caixa?"\n🔔 "quem tá me devendo?"\n🏆 "qual produto vendeu mais?"\n📈 "qual meu lucro esse mês?"\n\n🔔 E posso te *lembrar* de coisas:\n"me lembra de tomar o remédio todo dia às 8h"\n("meus lembretes" pra ver / "cancela o lembrete X")\n\n🧾 *Despesa fixa:* "cadastra despesa fixa aluguel 2600 dia 10 pessoal" · "dar baixa no aluguel das fixas"\n💳 *Empréstimo:* "peguei 5000 emprestado, 5x de 1000"\n\nÉ só mandar! 💛`, env);
       return;
     }
 
