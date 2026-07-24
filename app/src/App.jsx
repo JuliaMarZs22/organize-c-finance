@@ -296,7 +296,7 @@ function Client({user,logout}) {
     const hojeStr=`${NOW.getFullYear()}-${String(NOW.getMonth()+1).padStart(2,"0")}-${String(NOW.getDate()).padStart(2,"0")}`;
     const realized=(d)=>(d||"")<=hojeStr;
     const ativos=txs.filter((t)=>!t.cancelado); // cancelados não entram no somatório
-    let entradasMes=0,saidasMes=0,proLabore=0,investido=0,emprestEntMes=0,emprestSaiMes=0;const catMap={};
+    let entradasMes=0,saidasMes=0,proLabore=0,investido=0,emprestEntMes=0,emprestSaiMes=0,aporteEntMes=0;const catMap={};
     const vendaSubMap={},investSubMap={};const negMap={};
     const ehEmprest=(t)=>t.category==="Empréstimo";
     // classifica cada saída em Negócio (operação) x Pessoal (custo de vida) x Outros
@@ -311,7 +311,7 @@ function Client({user,logout}) {
       // não são deduzidos como saída — eles aparecem na projeção e no painel de Dívidas.
       if(mk(new Date(t.date+"T12:00:00"))===cur && realized(t.date)){
         if(t.negocio){if(!negMap[t.negocio])negMap[t.negocio]={entrada:0,saida:0};negMap[t.negocio][t.type]+=t.amount;}
-        if(t.type==="entrada"){entradasMes+=t.amount;if(ehEmprest(t))emprestEntMes+=t.amount;const k=t.sub||t.category;vendaSubMap[k]=(vendaSubMap[k]||0)+t.amount;}
+        if(t.type==="entrada"){entradasMes+=t.amount;if(ehEmprest(t))emprestEntMes+=t.amount;if(t.category==="Investimento"){aporteEntMes+=t.amount;/* aporte de capital não é venda/faturamento */}else{const k=t.sub||t.category;vendaSubMap[k]=(vendaSubMap[k]||0)+t.amount;}}
         else{saidasMes+=t.amount;if(ehEmprest(t))emprestSaiMes+=t.amount;if(t.category==="Pró-labore")proLabore+=t.amount;else if(t.category==="Investimento")investido+=t.amount;const gk=t.sub||t.category;catMap[gk]=(catMap[gk]||0)+t.amount;if(t.category==="Marketing"||t.category==="Investimento"){const k=t.sub||t.category;investSubMap[k]=(investSubMap[k]||0)+t.amount;}const b=baldeSaida(t);if(b==="negocio")negocioMes+=t.amount;else if(b==="pessoal")pessoalMes+=t.amount;else outrosMes+=t.amount;}
       }
     });
@@ -328,8 +328,8 @@ function Client({user,logout}) {
     const prox=proj[0]||{entrada:0,key:mk(addMonths(NOW,1))};
     const podeGastar=caixa+prox.entrada-totalFixo-reserva;
     const coberto=caixa+prox.entrada>=totalFixo+reserva;
-    // lucro NÃO conta empréstimo (entrada de dívida) nem suas parcelas (financiamento, não operação)
-    const lucro=(entradasMes-emprestEntMes)-((saidasMes-emprestSaiMes)-proLabore-investido);
+    // lucro NÃO conta empréstimo (entrada de dívida) nem APORTE de capital (não é venda) nem investimento (não é custo operacional)
+    const lucro=(entradasMes-emprestEntMes-aporteEntMes)-((saidasMes-emprestSaiMes)-proLabore-investido);
     const cats=Object.entries(catMap).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
     // DÍVIDAS: parcelas de empréstimo ainda não pagas (futuras)
     const parcDiv=ativos.filter((t)=>t.type==="saida"&&t.category==="Empréstimo"&&new Date(t.date+"T12:00:00")>NOW);
