@@ -68,24 +68,40 @@ async function buscarClientePorEmail(email, env) {
   return rows?.[0] || null;
 }
 
-async function enviarBoasVindas(to, nome, login, senha, env) {
+// Gera um link de recuperação/definição de senha do Supabase para o cliente
+async function gerarLinkAcesso(email, env) {
+  const redirect = `${env.PAINEL_URL || "https://organize-c-finance.pages.dev"}/reset`;
+  const r = await fetch(`${env.SUPABASE_URL}/auth/v1/admin/generate_link`, {
+    method: "POST",
+    headers: {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ type: "recovery", email, options: { redirect_to: redirect } }),
+  });
+  const j = await r.json();
+  return j.action_link || j.properties?.action_link || redirect;
+}
+
+// Template "bem_vindo": {{1}} nome, {{2}} link para definir senha
+async function enviarBoasVindas(to, nome, link, env) {
   if (!to) return; // telefone opcional
-  await fetch(`https://graph.facebook.com/${env.GRAPH_VERSION || "v21.0"}/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`, {
+  const r = await fetch(`https://graph.facebook.com/${env.GRAPH_VERSION || "v21.0"}/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`, {
     method: "POST",
     headers: { Authorization: `Bearer ${env.WHATSAPP_TOKEN}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       messaging_product: "whatsapp", to, type: "template",
       template: {
-        name: "boas_vindas", language: { code: "pt_BR" },
+        name: "bem_vindo", language: { code: "pt_BR" },
         components: [{ type: "body", parameters: [
           { type: "text", text: nome },
-          { type: "text", text: login },
-          { type: "text", text: senha },
-          { type: "text", text: env.PAINEL_URL || "https://organize-c-finance.pages.dev" },
+          { type: "text", text: link },
         ]}],
       },
     }),
   });
+  console.log("boas-vindas ->", to, r.status, await r.text());
 }
 
 // ── Provisionamento compartilhado ──────────────────────────────
@@ -97,33 +113,58 @@ async function provisionar({ email, nome, telefone, plano }, env) {
     return;
   }
 
+  // cria usuário com senha aleatória (o cliente define a dele pelo link)
   const senha = senhaAleatoria();
   const { user, error } = await criarUsuarioSupabase(email, senha, env);
   if (error) { console.error("createUser:", error); return; }
 
   await inserirCliente({ id: user.id, nome, email, telefone, plano }, env);
-  await enviarBoasVindas(telefone, nome.split(" ")[0], email, senha, env);
+
+  const link = await gerarLinkAcesso(email, env);
+  await enviarBoasVindas(telefone, nome.split(" ")[0], link, env);
 }
 
 // ── Handler Guru ───────────────────────────────────────────────
 async function handleGuru(body, env) {
-  if (body.api_token !== env.GURU_TOKEN) return;
-  if (body.webhook_type !== "transaction") return;
+  console.log("GURU webhook:", JSON.stringify(body).slice(0, 3000));
 
-  const email    = body.contact?.email;
-  const nome     = body.contact?.name || "Cliente";
-  // DDI 55 + DDD + número
-  const telefone = body.contact?.phone_number
-    ? soDigitos("55" + (body.contact.phone_local_code || "") + body.contact.phone_number)
+  // valida o token (Guru envia em body.api_token); aceita match exato ou prefixo (uuid)
+  const recebido = body.api_token || "";
+  const esperado = env.GURU_TOKEN || "";
+  const tokenOk = recebido === esperado || (recebido && esperado.startsWith(recebido)) || (recebido && recebido.startsWith(esperado.split("|")[0]));
+  if (!tokenOk) {
+    console.log("GURU token não confere. recebido(prefixo):", recebido.slice(0, 8), "| esperado(prefixo):", esperado.slice(0, 8));
+    return;
+  }
+  // O Guru manda 2 formatos: "transaction" (venda avulsa) e "subscription" (assinatura).
+  // Dados do cliente: contact (transação) ou subscriber (assinatura).
+  const cli = body.contact || body.subscriber || body.last_transaction?.contact || {};
+  const email = cli.email;
+  const nome  = cli.name || "Cliente";
+  // phone_local_code já é o DDI ("55"); phone_number já traz o DDD. Não prefixar outro 55.
+  const telefone = cli.phone_number
+    ? soDigitos((cli.phone_local_code || "55") + cli.phone_number)
     : null;
 
-  if (["refunded", "chargeback", "canceled"].includes(body.status)) {
+  // Status: transação usa body.status; assinatura usa last_status + current_invoice.status
+  const statusTx  = (body.status || "").toLowerCase();
+  const statusSub = (body.last_status || "").toLowerCase();
+  const invoiceOk = (body.current_invoice?.status || "").toLowerCase() === "paid";
+  console.log("GURU status tx:", statusTx, "| sub:", statusSub, "| invoicePaid:", invoiceOk, "| email:", email);
+
+  const CANCELADOS = ["refunded", "chargeback", "canceled", "cancelled", "expired", "past_due", "unpaid"];
+  const APROVADOS  = ["approved", "active", "paid", "trialing"];
+
+  if (CANCELADOS.includes(statusTx) || CANCELADOS.includes(statusSub)) {
     if (email) await atualizarStatus(email, "cancelado", null, env);
     return;
   }
-  if (body.status !== "approved" || !email) return;
 
-  const dias  = body.subscription?.charged_every_days || 0;
+  const aprovado = APROVADOS.includes(statusTx) || APROVADOS.includes(statusSub) || invoiceOk;
+  if (!aprovado || !email) { console.log("GURU: não aprovado ou sem email, ignorando."); return; }
+
+  // plano pelo ciclo de cobrança (>= 300 dias = anual)
+  const dias  = body.charged_every_days || body.subscription?.charged_every_days || 0;
   const plano = dias >= 300 ? "anual" : dias > 0 ? "mensal" : "anual";
 
   await provisionar({ email, nome, telefone, plano }, env);
@@ -163,8 +204,54 @@ async function handleAsaas(body, env) {
 }
 
 // ── Export Worker ──────────────────────────────────────────────
+// verifica se o token (JWT do usuário logado) é de um ADMIN. Retorna o email ou null.
+async function ehAdminToken(token, env) {
+  if (!token) return null;
+  const ur = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${token}` } });
+  if (!ur.ok) return null;
+  const u = await ur.json();
+  const email = u?.email; if (!email) return null;
+  const ar = await fetch(`${env.SUPABASE_URL}/rest/v1/admins?email=eq.${encodeURIComponent(email)}&select=email`, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } });
+  const rows = await ar.json();
+  return rows?.[0] ? email : null;
+}
+
+// cria um usuário manualmente (licença bônus). dias>0 => acesso_ate = hoje + dias; dias<=0 => ilimitado.
+async function criarUsuarioAdmin({ email, nome, telefone, dias }, env) {
+  const existente = await buscarClientePorEmail(email, env);
+  if (existente) return { error: "Já existe um cliente com esse e-mail." };
+  const senha = senhaAleatoria();
+  const { user, error } = await criarUsuarioSupabase(email, senha, env);
+  if (error || !user?.id) return { error: error || "Falha ao criar usuário." };
+  const acessoAte = Number(dias) > 0 ? new Date(Date.now() + Number(dias) * 86400000).toISOString() : null;
+  await fetch(`${env.SUPABASE_URL}/rest/v1/clientes`, {
+    method: "POST",
+    headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify({ id: user.id, nome, email, telefone: telefone || null, tipo: "empreendedor", plano: "bonus", status: "ativo", acesso_ate: acessoAte }),
+  });
+  const link = await gerarLinkAcesso(email, env);
+  return { link, acessoAte };
+}
+
+const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization" };
+
 export default {
   async fetch(request, env) {
+    const url0 = new URL(request.url);
+    // ── endpoint admin: criar usuário bônus (chamado pelo painel, com JWT do admin) ──
+    if (url0.pathname === "/admin/criar") {
+      if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
+      const token = (request.headers.get("Authorization") || "").replace(/^Bearer /, "");
+      const adminEmail = await ehAdminToken(token, env);
+      if (!adminEmail) return new Response(JSON.stringify({ error: "não autorizado" }), { status: 403, headers: { ...CORS, "Content-Type": "application/json" } });
+      const b = await request.json().catch(() => null);
+      if (!b?.email || !b?.nome) return new Response(JSON.stringify({ error: "e-mail e nome são obrigatórios" }), { status: 400, headers: { ...CORS, "Content-Type": "application/json" } });
+      const res = await criarUsuarioAdmin({ email: b.email.trim().toLowerCase(), nome: b.nome.trim(), telefone: (b.telefone || "").replace(/\D/g, "") || null, dias: b.dias }, env);
+      const status = res.error ? 400 : 200;
+      return new Response(JSON.stringify(res), { status, headers: { ...CORS, "Content-Type": "application/json" } });
+    }
+
+    if (request.method !== "POST") {
     if (request.method !== "POST") {
       return new Response("Organize-C Finance — provisionamento online", { status: 200 });
     }
@@ -173,16 +260,32 @@ export default {
     const body = await request.json().catch(() => null);
     if (!body) return new Response("Bad Request", { status: 400 });
 
-    if (url.pathname === "/webhook/guru") {
+    // DEBUG: grava todo webhook recebido no Supabase (independe do tail)
+    try {
+      await fetch(`${env.SUPABASE_URL}/rest/v1/webhook_debug`, {
+        method: "POST",
+        headers: {
+          apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          "Content-Type": "application/json", Prefer: "return=minimal",
+        },
+        body: JSON.stringify({ path: url.pathname, corpo: body }),
+      });
+    } catch (_) {}
+
+    // Roteamento por path explícito OU por formato do payload (robusto a qualquer URL)
+    const ehGuru  = url.pathname.includes("guru")  || body.webhook_type !== undefined || body.api_token !== undefined;
+    const ehAsaas = url.pathname.includes("asaas") || (body.event !== undefined && body.payment !== undefined);
+
+    if (ehAsaas && !body.webhook_type) {
+      await handleAsaas(body, env);
+      return new Response("OK", { status: 200 });
+    }
+    if (ehGuru) {
       await handleGuru(body, env);
       return new Response("OK", { status: 200 });
     }
 
-    if (url.pathname === "/webhook/asaas") {
-      await handleAsaas(body, env);
-      return new Response("OK", { status: 200 });
-    }
-
-    return new Response("Not Found", { status: 404 });
+    console.log("Webhook não reconhecido:", url.pathname, JSON.stringify(body).slice(0, 200));
+    return new Response("OK", { status: 200 });
   },
 };

@@ -5,6 +5,10 @@ compatibility_date = "2024-01-01"
 [vars]
 GRAPH_VERSION = "v21.0"
 
+[[kv_namespaces]]
+binding = "PENDENTES"
+id = "ad5eddbb2212427b9ee2e166e4a81d67"
+
 # Secrets (defina via: wrangler secret put NOME)
 # WHATSAPP_TOKEN
 # WHATSAPP_PHONE_NUMBER_ID

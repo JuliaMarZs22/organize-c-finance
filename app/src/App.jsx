@@ -13,7 +13,7 @@ import {
   supabase, entrar, sair, definirSenha, usuarioAtual, ehAdmin, meuPerfil,
   carregarLancamentos, inserirLancamentos, carregarClientes,
   carregarDespesasFixas, inserirDespesaFixa, excluirDespesaFixa, editarDespesaFixa, pagarDespesaFixa, renomearNegocioFixa,
-  atualizarSaldoInicial, atualizarCliente, editarLancamento, renomearPessoa, ajustarPendentePessoa,
+  atualizarSaldoInicial, atualizarCliente, editarLancamento, renomearPessoa, ajustarPendentePessoa, criarUsuarioBonus,
   carregarMeta, salvarMeta, salvarPlanejamento, carregarCores, salvarCor, registrarOptin,
 } from "./supabase";
 
@@ -91,6 +91,17 @@ function OptinModal({onDone,showToast}) {
   </div>;
 }
 
+// Tela de acesso expirado/cancelado
+function Bloqueado({logout}) {
+  return <Centro><div style={{maxWidth:400,textAlign:"center",padding:24}}>
+    <div style={{fontSize:38,marginBottom:12}}>🔒</div>
+    <div style={{fontFamily:serif,fontSize:24,fontWeight:600,color:C.text,marginBottom:10}}>Seu acesso expirou</div>
+    <p style={{fontSize:14,color:C.muted,lineHeight:1.6,marginBottom:20}}>Seu período de acesso ao Organize-C Finance terminou. Seus dados estão guardados e seguros. Pra continuar usando, renove seu plano.</p>
+    <a href="https://organize-c.com/finance" target="_blank" rel="noopener" style={{display:"inline-block",background:C.emer,color:"#04120a",textDecoration:"none",borderRadius:10,padding:"11px 22px",fontSize:14,fontWeight:600}}>Renovar acesso 💛</a>
+    <div><button onClick={logout} style={{background:"none",border:"none",color:C.faint,cursor:"pointer",fontSize:12.5,marginTop:16}}>Sair</button></div>
+  </div></Centro>;
+}
+
 export default function App() {
   const[screen,setScreen]=useState("loading");
   const[user,setUser]=useState(null);
@@ -101,18 +112,21 @@ export default function App() {
     const{data:sub}=supabase.auth.onAuthStateChange((evento)=>{ if(evento==="PASSWORD_RECOVERY")setScreen("recovery"); });
     (async()=>{
       if(ehRecovery){ setScreen("recovery"); return; }
-      try{ const u=await usuarioAtual(); if(!u)return setScreen("login"); setUser(u); setScreen((await ehAdmin(u.email))?"admin":"client"); }catch{ setScreen("login"); }
+      try{ const u=await usuarioAtual(); if(!u)return setScreen("login"); setUser(u); setScreen(await telaDe(u)); }catch{ setScreen("login"); }
     })();
     return ()=>sub?.subscription?.unsubscribe?.();
   },[]);
-  const aposLogin=async(u)=>{ setUser(u); try{ setScreen((await ehAdmin(u.email))?"admin":"client"); }catch{ setScreen("client"); } };
+  // decide a tela: admin, cliente ativo, ou bloqueado (acesso vencido/cancelado)
+  const telaDe=async(u)=>{ if(await ehAdmin(u.email))return "admin"; const p=await meuPerfil(); const venc=p?.acesso_ate&&new Date(p.acesso_ate)<new Date(); if(p&&(p.status==="cancelado"||venc))return "bloqueado"; return "client"; };
+  const aposLogin=async(u)=>{ setUser(u); try{ setScreen(await telaDe(u)); }catch{ setScreen("client"); } };
   const logout=async()=>{ await sair(); setUser(null); setScreen("login"); };
-  const aposNovaSenha=async()=>{ try{ const u=await usuarioAtual(); setUser(u); setScreen((await ehAdmin(u?.email))?"admin":"client"); }catch{ setScreen("login"); } };
+  const aposNovaSenha=async()=>{ try{ const u=await usuarioAtual(); setUser(u); setScreen(await telaDe(u)); }catch{ setScreen("login"); } };
   return <div style={{background:C.bg,color:C.text,minHeight:"100vh",fontFamily:sans}}>
     {screen==="loading"&&<Centro><Loader2 size={26} color={C.gold} className="animate-spin"/></Centro>}
     {screen==="login"&&<Login onLogin={aposLogin}/>}
     {screen==="recovery"&&<NovaSenha onDone={aposNovaSenha}/>}
     {screen==="client"&&<Client user={user} logout={logout}/>}
+    {screen==="bloqueado"&&<Bloqueado logout={logout}/>}
     {screen==="admin"&&<Admin logout={logout}/>}
     {screen!=="loading"&&<SuporteFab/>}
   </div>;
@@ -913,6 +927,12 @@ function Admin({logout}) {
   const[showToast,toastNode]=useToast();
   const recarregarAdmin=()=>carregarClientes().then(({clientes:c})=>setClientes(c||[]));
   const salvarEdicao=async()=>{if(!editando)return;const{error}=await atualizarCliente(editando.id,{[editando.campo]:editando.valor});if(error)return showToast("Erro ao salvar","error");showToast("Atualizado!");setEditando(null);recarregarAdmin();};
+  // cadastro de usuário bônus
+  const DURACOES=[["7","7 dias"],["30","1 mês"],["90","3 meses"],["180","6 meses"],["365","1 ano"],["0","Ilimitado"]];
+  const[novo,setNovo]=useState({email:"",nome:"",telefone:"",dias:"30"});const[criando,setCriando]=useState(false);const[linkGerado,setLinkGerado]=useState("");
+  const criarBonus=async()=>{if(!novo.email.trim()||!novo.nome.trim())return showToast("Preencha e-mail e nome.","error");setCriando(true);setLinkGerado("");const{link,error}=await criarUsuarioBonus({email:novo.email,nome:novo.nome,telefone:novo.telefone,dias:Number(novo.dias)});setCriando(false);if(error)return showToast(error.message||"Erro ao criar","error");setLinkGerado(link||"");setNovo({email:"",nome:"",telefone:"",dias:"30"});showToast("Usuário criado! 🎁");recarregarAdmin();};
+  // dar/estender acesso de um cliente existente (+dias a partir de hoje ou da data atual futura)
+  const darBonus=async(c,dias)=>{const base=(c.acesso_ate&&new Date(c.acesso_ate)>NOW)?new Date(c.acesso_ate):NOW;const nova=Number(dias)>0?new Date(base.getTime()+Number(dias)*86400000).toISOString():null;const{error}=await atualizarCliente(c.id,{acesso_ate:nova});if(error)return showToast("Erro","error");showToast(Number(dias)>0?`+${dias} dias de acesso ✅`:"Acesso ilimitado ✅");recarregarAdmin();};
   const PRECO={anual:497,mensal:67};
   useEffect(()=>{carregarClientes().then(({clientes:c})=>setClientes(c||[])).finally(()=>setLoad(false));},[]);
   const NOW=today();
@@ -935,6 +955,22 @@ function Admin({logout}) {
         <Stat icon={TrendingDown} label="Churn rate" value={`${churnRate}%`} accent={C.coral} sub={`${cancel} cancelamento${cancel!==1?"s":""}`}/>
       </div>
       <Panel>
+        <div className="flex items-center gap-2 mb-1" style={{fontSize:14,fontWeight:600}}><UserPlus size={16} color={C.gold}/> Cadastrar usuário (licença bônus)</div>
+        <p style={{fontSize:12,color:C.muted,marginBottom:12}}>Cria uma conta com prazo de acesso. Ao vencer, o login e o bot bloqueiam automaticamente.</p>
+        <div className="grid gap-2 mb-2" style={{gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))"}}>
+          <input value={novo.nome} onChange={(e)=>setNovo({...novo,nome:e.target.value})} placeholder="Nome" style={{background:C.panel2,border:`1px solid ${C.border}`,color:C.text,fontSize:13,borderRadius:8,padding:"9px 11px",outline:"none"}}/>
+          <input value={novo.email} onChange={(e)=>setNovo({...novo,email:e.target.value})} placeholder="E-mail" type="email" style={{background:C.panel2,border:`1px solid ${C.border}`,color:C.text,fontSize:13,borderRadius:8,padding:"9px 11px",outline:"none"}}/>
+          <input value={novo.telefone} onChange={(e)=>setNovo({...novo,telefone:e.target.value})} placeholder="WhatsApp (com DDD)" style={{background:C.panel2,border:`1px solid ${C.border}`,color:C.text,fontSize:13,borderRadius:8,padding:"9px 11px",outline:"none"}}/>
+          <select value={novo.dias} onChange={(e)=>setNovo({...novo,dias:e.target.value})} style={{background:C.panel2,border:`1px solid ${C.border}`,color:C.text,fontSize:13,borderRadius:8,padding:"9px 11px",outline:"none"}}>{DURACOES.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select>
+        </div>
+        <button onClick={criarBonus} disabled={criando} className="rounded-lg px-4 py-2 flex items-center gap-2" style={{background:C.emer,color:"#04120a",fontSize:13,fontWeight:600,cursor:criando?"not-allowed":"pointer",border:"none"}}>{criando?<><Loader2 size={15} className="animate-spin"/> Criando…</>:<><UserPlus size={15}/> Criar usuário</>}</button>
+        {linkGerado&&<div style={{marginTop:12,padding:12,background:C.panel2,borderRadius:8,border:`1px solid ${C.border2}`}}>
+          <div style={{fontSize:12,color:C.emer,fontWeight:600,marginBottom:4}}>✅ Conta criada! Envie este link pra pessoa definir a senha:</div>
+          <div style={{fontSize:11.5,color:C.muted,wordBreak:"break-all",marginBottom:6}}>{linkGerado}</div>
+          <button onClick={()=>{navigator.clipboard.writeText(linkGerado);showToast("Link copiado!");}} style={{background:C.gold,color:"#16213a",border:"none",borderRadius:6,padding:"4px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Copiar link</button>
+        </div>}
+      </Panel>
+      <Panel>
         <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
           <div style={{fontSize:14,fontWeight:500}}>Clientes <span style={{fontSize:12,color:C.faint,marginLeft:6}}>({list.length})</span></div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -944,7 +980,7 @@ function Admin({logout}) {
         </div>
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-            <thead><tr style={{color:C.faint,fontSize:11.5,textTransform:"uppercase",letterSpacing:".05em"}}>{["Cliente","WhatsApp","Plano","Status","Entrou em","Ações"].map((h)=><th key={h} style={{textAlign:"left",padding:"10px 12px",borderBottom:`1px solid ${C.border}`}}>{h}</th>)}</tr></thead>
+            <thead><tr style={{color:C.faint,fontSize:11.5,textTransform:"uppercase",letterSpacing:".05em"}}>{["Cliente","WhatsApp","Plano","Status","Acesso até","Ações"].map((h)=><th key={h} style={{textAlign:"left",padding:"10px 12px",borderBottom:`1px solid ${C.border}`}}>{h}</th>)}</tr></thead>
             <tbody>{list.map((c)=><tr key={c.id} style={{borderBottom:`1px solid ${C.border}`}}>
               <td style={{padding:12}}><div className="flex items-center gap-2.5"><div style={{width:30,height:30,borderRadius:"50%",background:C.panel2,border:`1px solid ${C.border}`,fontSize:12,color:C.gold,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{(c.nome||"?")[0].toUpperCase()}</div><div><div style={{fontWeight:500}}>{c.nome||"—"}</div>{c.email&&<div style={{fontSize:11,color:C.faint}}>{c.email}</div>}</div></div></td>
               <td style={{padding:12,color:C.muted}}>{c.telefone||"—"}</td>
@@ -958,7 +994,7 @@ function Admin({logout}) {
                   ?<span className="flex gap-1"><select value={editando.valor} onChange={(e)=>setEditando({...editando,valor:e.target.value})} style={{background:C.panel2,border:`1px solid ${C.border}`,color:C.text,fontSize:12,borderRadius:6,padding:"3px 6px"}}><option value="ativo">ativo</option><option value="teste">teste</option><option value="cancelado">cancelado</option></select><button onClick={salvarEdicao} style={{background:C.gold,color:"#16213a",border:"none",borderRadius:5,padding:"2px 7px",fontSize:11,cursor:"pointer"}}>OK</button></span>
                   :<span onClick={()=>setEditando({id:c.id,campo:"status",valor:c.status||"ativo"})} style={{cursor:"pointer"}}><Badge color={cor(c.status)}>{lbl(c.status)}</Badge></span>}
               </td>
-              <td style={{padding:12,color:C.muted}}>{c.criado_em?new Date(c.criado_em).toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric"}):"—"}</td>
+              <td style={{padding:12}}>{(()=>{const venc=c.acesso_ate&&new Date(c.acesso_ate)<NOW;const txt=c.acesso_ate?new Date(c.acesso_ate).toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric"}):"Ilimitado";return <div className="flex items-center gap-2"><span style={{color:venc?C.coral:c.acesso_ate?C.muted:C.emer,fontSize:12.5,whiteSpace:"nowrap"}}>{venc?`${txt} · vencido`:txt}</span><select value="" onChange={(e)=>{if(e.target.value!=="")darBonus(c,e.target.value);}} title="Dar bônus / renovar" style={{background:C.panel2,border:`1px solid ${C.border}`,color:C.muted,fontSize:11,borderRadius:5,padding:"2px 4px",cursor:"pointer"}}><option value="">+ bônus</option>{DURACOES.map(([v,l])=><option key={v} value={v}>{Number(v)>0?`+${l}`:"Ilimitado"}</option>)}</select></div>;})()}</td>
               <td style={{padding:12}}><button onClick={()=>setEditando({id:c.id,campo:"status",valor:c.status==="cancelado"?"ativo":"cancelado"})} style={{background:"none",border:`1px solid ${c.status==="cancelado"?C.emer:C.coral}`,color:c.status==="cancelado"?C.emer:C.coral,borderRadius:6,padding:"3px 9px",fontSize:11.5,cursor:"pointer"}} title={c.status==="cancelado"?"Reativar":"Cancelar"}>{c.status==="cancelado"?"Reativar":"Cancelar"}</button></td>
             </tr>)}</tbody>
           </table>

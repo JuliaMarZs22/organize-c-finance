@@ -154,11 +154,28 @@ export async function atualizarSaldoInicial(valor) {
 }
 export async function carregarClientes() {
   const { data, error } = await supabase
-    .from("clientes").select("id, nome, telefone, email, plano, status, criado_em")
+    .from("clientes").select("id, nome, telefone, email, plano, status, criado_em, acesso_ate")
     .order("criado_em", { ascending: false });
   return { clientes: data || [], error };
 }
 export async function atualizarCliente(id, campos) {
   const { error } = await supabase.from("clientes").update(campos).eq("id", id);
   return { error };
+}
+// cria usuário manualmente (licença bônus) via worker de provisionamento, com JWT do admin
+const PROVISION_URL = "https://organize-c-provisionamento.organizecpro.workers.dev";
+export async function criarUsuarioBonus({ email, nome, telefone, dias }) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) return { error: new Error("não autenticado") };
+  try {
+    const r = await fetch(`${PROVISION_URL}/admin/criar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ email, nome, telefone, dias }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) return { error: new Error(data.error || "falha ao criar usuário") };
+    return { link: data.link, acessoAte: data.acessoAte, error: null };
+  } catch (e) { return { error: e }; }
 }
