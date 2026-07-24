@@ -275,21 +275,28 @@ Sempre que fizer sentido, dê 1 conselho prático (capacidade de investir, onde 
       return `Opa! 🙌 Você usou suas *${LIMITE_DIAG_DIA} análises profundas* de hoje (aquelas mais detalhadas, de diagnóstico e conselhos). Elas são pesadas, por isso têm um limite diário.\n\n👉 Amanhã ele zera e você pode pedir de novo.\n\nEnquanto isso, *tudo o mais continua funcionando normal*: registrar entradas e saídas, dar baixa em despesa, e perguntas rápidas (quanto vendi, meu caixa, quem me deve...). Quer mais análises agora? Fala com a gente sobre o *plano com créditos extras*. 💛`;
     }
   }
-  const rr = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.OPENAI_API_KEY}` },
-    body: JSON.stringify({
-      model: ehDiagnostico ? "gpt-4o" : "gpt-4o-mini", temperature: ehDiagnostico ? 0.6 : 0.4,
-      messages: [
-        { role: "system", content: ANALISTA },
-        { role: "user", content: `DADOS (JSON):\n${JSON.stringify(resumo)}\n\nPERGUNTA: ${pergunta}` },
-      ],
-    }),
-  });
-  const data = await rr.json();
   const modeloUsado = ehDiagnostico ? "gpt-4o" : "gpt-4o-mini";
-  await logUso(env, { clienteId, telefone, tipo: ehDiagnostico ? "diagnostico" : "consulta", modelo: modeloUsado, usage: data.usage });
-  return (data.choices?.[0]?.message?.content || "Não consegui analisar agora, tenta de novo? 🙂").trim();
+  try {
+    const rr = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.OPENAI_API_KEY}` },
+      body: JSON.stringify({
+        model: modeloUsado, temperature: ehDiagnostico ? 0.6 : 0.4,
+        messages: [
+          { role: "system", content: ANALISTA },
+          { role: "user", content: `DADOS (JSON):\n${JSON.stringify(resumo)}\n\nPERGUNTA: ${pergunta}` },
+        ],
+      }),
+    });
+    const raw = await rr.text();
+    if (!rr.ok) { console.log("CONSULTA OpenAI falhou:", rr.status, raw.slice(0, 400)); return "Tô com dificuldade de analisar agora 😕 tenta de novo em instantes?"; }
+    const data = JSON.parse(raw);
+    await logUso(env, { clienteId, telefone, tipo: ehDiagnostico ? "diagnostico" : "consulta", modelo: modeloUsado, usage: data.usage });
+    return (data.choices?.[0]?.message?.content || "Não consegui analisar agora, tenta de novo? 🙂").trim();
+  } catch (e) {
+    console.error("CONSULTA erro:", e && e.stack ? e.stack : String(e));
+    return "Tô com dificuldade de analisar agora 😕 tenta de novo em instantes?";
+  }
 }
 
 // busca pendências em aberto de uma pessoa (valor_pendente > 0)
