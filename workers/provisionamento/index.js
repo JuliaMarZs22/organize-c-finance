@@ -252,7 +252,6 @@ export default {
     }
 
     if (request.method !== "POST") {
-    if (request.method !== "POST") {
       return new Response("Organize-C Finance — provisionamento online", { status: 200 });
     }
 
