@@ -154,7 +154,7 @@ export async function atualizarSaldoInicial(valor) {
 }
 export async function carregarClientes() {
   const { data, error } = await supabase
-    .from("clientes").select("id, nome, telefone, email, plano, status, criado_em, acesso_ate")
+    .from("clientes").select("*")
     .order("criado_em", { ascending: false });
   return { clientes: data || [], error };
 }
