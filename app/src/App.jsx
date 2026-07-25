@@ -117,7 +117,9 @@ export default function App() {
     return ()=>sub?.subscription?.unsubscribe?.();
   },[]);
   // decide a tela: admin, cliente ativo, ou bloqueado (acesso vencido/cancelado)
-  const telaDe=async(u)=>{ if(await ehAdmin(u.email))return "admin"; const p=await meuPerfil(); const venc=p?.acesso_ate&&new Date(p.acesso_ate)<new Date(); if(p&&(p.status==="cancelado"||venc))return "bloqueado"; return "client"; };
+  // bloqueia SÓ quem tem prazo definido e vencido (licenças novas/bônus).
+  // Cliente antigo tem acesso_ate NULL => nunca é bloqueado.
+  const telaDe=async(u)=>{ try{ if(await ehAdmin(u.email))return "admin"; const p=await meuPerfil(); if(p?.acesso_ate&&new Date(p.acesso_ate)<new Date())return "bloqueado"; }catch(e){console.error(e);} return "client"; };
   const aposLogin=async(u)=>{ setUser(u); try{ setScreen(await telaDe(u)); }catch{ setScreen("client"); } };
   const logout=async()=>{ await sair(); setUser(null); setScreen("login"); };
   const aposNovaSenha=async()=>{ try{ const u=await usuarioAtual(); setUser(u); setScreen(await telaDe(u)); }catch{ setScreen("login"); } };

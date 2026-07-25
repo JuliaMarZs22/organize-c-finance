@@ -528,7 +528,7 @@ function variacoesTelefone(tel) {
 async function buscarCliente(telefone, env) {
   const vars = variacoesTelefone(telefone);
   const inList = vars.map((v) => `"${v}"`).join(",");
-  const r = await fetch(`${env.SUPABASE_URL}/rest/v1/clientes?telefone=in.(${inList})&select=id,telefone,status,acesso_ate`, {
+  const r = await fetch(`${env.SUPABASE_URL}/rest/v1/clientes?telefone=in.(${inList})&select=*`, {
     headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
   });
   const rows = await r.json();
@@ -678,9 +678,10 @@ async function processarMensagem(body, env) {
       return;
     }
 
-    // bloqueio por acesso vencido/cancelado
+    // bloqueio SÓ para quem tem prazo definido explicitamente (licenças novas/bônus).
+    // Cliente antigo tem acesso_ate NULL => NUNCA é bloqueado.
     const vencido = cliente.acesso_ate && new Date(cliente.acesso_ate) < new Date();
-    if (cliente.status === "cancelado" || vencido) {
+    if (vencido) {
       await enviar(telefone, "🔒 Seu acesso ao Organize-C Finance expirou. Seus dados estão guardados! Pra continuar usando, renove em organize-c.com/finance 💛", env);
       return;
     }
