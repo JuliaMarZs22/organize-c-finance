@@ -508,8 +508,8 @@ function textoConfirmacao(p) {
   const negTxt = p.negocio ? ` · ${p.negocio}` : "";
   const refTxt = p.referencia ? ` · ref.: ${p.referencia}` : "";
   const extra = `${p.pessoa ? ` (${p.pessoa})` : ""}${refTxt}${negTxt}${p.pendente ? ` — falta ${p.type === "saida" ? "pagar" : "receber"} ${fmt(p.pendente)}` : ""}`;
-  if (p.installments > 1) return `Anotei: *${p.installments} ${p.type === "entrada" ? "entradas" : "saídas"} de ${fmt(p.valorParcela)}*, uma por mês a partir de ${(p.data || hojeISO).split("-").reverse().join("/")}, em ${cat}${extra}. Total ${fmt(p.total)}. Confirma? 👍`;
-  return `Registrei: *${p.type === "entrada" ? "Entrada" : "Saída"} de ${fmt(p.total)}*${dataTxt} em ${cat}${extra}. Confirma? 👍`;
+  if (p.installments > 1) return `Anotei: *${p.installments} ${p.type === "entrada" ? "entradas" : "saídas"} de ${fmt(p.valorParcela)}*, uma por mês a partir de ${(p.data || hojeISO).split("-").reverse().join("/")}, em ${cat}${extra}. Total ${fmt(p.total)}. ✅ Salvo!\n_Se estiver errado, é só responder "cancela"._`;
+  return `Registrei: *${p.type === "entrada" ? "Entrada" : "Saída"} de ${fmt(p.total)}*${dataTxt} em ${cat}${extra}. ✅ Salvo no seu painel!\n_Se estiver errado, é só responder "cancela"._`;
 }
 
 // Gera variações do número BR: com e sem o 9º dígito do celular.
@@ -534,6 +534,26 @@ async function buscarCliente(telefone, env) {
   const rows = await r.json();
   return Array.isArray(rows) ? (rows[0] || null) : null;
 }
+
+// grava e devolve os IDs criados (pra permitir desfazer com "cancela")
+async function gravarComIds(linhas, env) {
+  const r = await fetch(`${env.SUPABASE_URL}/rest/v1/lancamentos`, {
+    method: "POST",
+    headers: {
+      apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      "Content-Type": "application/json", Prefer: "return=representation",
+    },
+    body: JSON.stringify(linhas),
+  });
+  if (!r.ok) { console.log("GRAVAR falhou:", r.status, (await r.text()).slice(0, 300)); return { ok: false, ids: [] }; }
+  const rows = await r.json().catch(() => []);
+  return { ok: true, ids: Array.isArray(rows) ? rows.map((x) => x.id).filter(Boolean) : [] };
+}
+// guarda o último lançamento gravado (1h) pra poder desfazer
+const ultKey = (tel) => `ult:${tel}`;
+async function ultSet(env, tel, dados) { try { await env.PENDENTES.put(ultKey(tel), JSON.stringify(dados), { expirationTtl: 3600 }); } catch (_) {} }
+async function ultGet(env, tel) { try { const v = await env.PENDENTES.get(ultKey(tel)); return v ? JSON.parse(v) : null; } catch (_) { return null; } }
+async function ultDel(env, tel) { try { await env.PENDENTES.delete(ultKey(tel)); } catch (_) {} }
 
 async function gravarLancamentos(linhas, env) {
   const r = await fetch(`${env.SUPABASE_URL}/rest/v1/lancamentos`, {
@@ -736,6 +756,17 @@ async function processarMensagem(body, env) {
       // se não foi sim/não, cai abaixo e trata como novo lançamento
     }
 
+    // desfazer o último lançamento gravado: "cancela" / "não" / "errado" (mensagem isolada, sem custo de IA)
+    if (/^\s*(n[ãa]o|cancela(r)?|errado|apaga(r)?|desfaz(er)?|exclui(r)?)\s*[!.]*\s*$/i.test(texto)) {
+      const ult = await ultGet(env, telefone);
+      if (ult?.ids?.length) {
+        await marcarCancelado(ult.ids, env);
+        await ultDel(env, telefone);
+        await enviar(telefone, `Feito! ❌ Cancelei a ${ult.label || "última movimentação"}. Ela não conta mais no seu painel.`, env);
+        return;
+      }
+    }
+
     // menu de ajuda (oi, menu, ajuda) — descoberta das funções, sem custo de IA
     if (/^\s*(oi+|ol[áa]|menu|ajuda|help|come[çc]ar|in[íi]cio|comandos|o que (voc[êe]|tu) faz|como funciona)\s*[!?.]*\s*$/i.test(texto)) {
       await enviar(telefone, `Oi! 👋 Sou seu assistente do *Organize-C Finance*. Comigo você pode, por *texto, áudio ou foto* 📷:\n\n📸 *Foto de comprovante/nota* — manda a imagem que eu leio o valor e registro\n📥 *Registrar* — "recebi 300 da Ana pela harmonização" / "gastei 50 de gasolina" / "investi 200 em tráfego"\n📅 *Datas* — "ontem", "dia 5/06", "10/07 vou receber 1000"\n✅ *Quitação* — "a Ana quitou"\n❌ *Cancelar* — "a cliente cancelou e quer o dinheiro de volta"\n✏️ *Corrigir* — "era 500, não 50"\n\nE me *perguntar* quando quiser:\n📊 "meu resumo da semana"\n💰 "como tá meu caixa?"\n🔔 "quem tá me devendo?"\n🏆 "qual produto vendeu mais?"\n📈 "qual meu lucro esse mês?"\n\n🔔 E posso te *lembrar* de coisas:\n"me lembra de tomar o remédio todo dia às 8h"\n("meus lembretes" pra ver / "cancela o lembrete X")\n\n🧾 *Despesa fixa:* "cadastra despesa fixa aluguel 2600 dia 10 pessoal" · "dar baixa no aluguel das fixas"\n💳 *Empréstimo:* "peguei 5000 emprestado, 5x de 1000"\n\nÉ só mandar! 💛`, env);
@@ -867,8 +898,12 @@ async function processarMensagem(body, env) {
     }
 
     if (!p.valid) { await enviar(telefone, "Não peguei o valor. Tenta: \"gastei 30 reais com almoço\" 😉", env); return; }
-    await pendSet(env, telefone, { ...p, tipo: "lancamento" });
-    await enviar(telefone, textoConfirmacao(p), env);
+    // registro simples: grava DIRETO (sem pedir confirmação) — evita perder lançamento de quem não responde.
+    // Operações delicadas (dar baixa, quitar, cancelar, empréstimo) continuam pedindo confirmação.
+    const linhasReg = montarLancamentos(p, cliente.id);
+    const { ok: okReg, ids: idsReg } = await gravarComIds(linhasReg, env);
+    if (okReg && idsReg.length) await ultSet(env, telefone, { ids: idsReg, label: `${p.type === "entrada" ? "entrada" : "saída"} de ${fmtBRL(p.total)}` });
+    await enviar(telefone, okReg ? textoConfirmacao(p) : "Ops, não consegui salvar. Tenta de novo?", env);
   } catch (e) {
     console.error("erro no webhook:", e && e.stack ? e.stack : String(e));
   }
